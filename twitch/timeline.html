@@ -1,0 +1,111 @@
+<head>
+	<meta charset="utf-8"/>
+</head>
+<body>
+<style>
+	#timelines {
+		width: 100%;
+		font-family: Arial;
+	}
+	.timeline-container {
+		margin-bottom: 20px;
+	}
+    .now-indicator {
+        position: absolute;
+        background: white;
+        height: 100%;
+        right: 0;
+    }
+    .stream-link {
+		text-decoration: none;
+        height: 100%;
+        display: inline-flex;
+        align-items: center;
+        color: gray;
+        padding-left: 2px;
+    }
+    .stream-link.live {
+        color: red;
+    }
+    .timeline-date-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin-left: 110px;
+    }
+    .channel-timeline {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+    }
+    .channel-name {
+        font-size: 14px;
+		font-weight: normal;
+        width: 100px;
+        padding: 0 5px;
+        text-align: right;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
+	.timeline {
+		font-weight: normal;
+		position: relative;
+		min-height: 1.2em;
+		align-self: stretch;
+		flex-grow: 1;
+		background: #CCC;
+		font-size: 12px;
+	}
+    .timeline-gridline {
+        position: absolute;
+        border-left: 1px solid rgba(255, 255, 255, 0.3);
+        top: 0;
+        height: 100%;
+        width: 0;
+    }
+    .timeline-gridline.major {
+        border-left: 1px solid rgba(255, 255, 255, 0.6);
+    }
+    .channel-timeline:nth-child(odd) .timeline {background: #DDD}
+    .channel-timeline:nth-child(odd) .timeline-span {background: #CDF}
+	.timeline-span img {
+        max-height: 100%;
+        align-self: stretch;
+    }
+	.timeline-span {
+		text-decoration: none;
+		color: inherit;
+		display: flex;
+        align-items: center;
+		background: #BCF;
+		height: 100%;
+		position: absolute;
+		top: 0;
+		white-space: nowrap;
+		border-left: 1px solid black;
+        overflow: hidden;
+	}
+    .timeline-span-text {
+        min-width: 0; /* https://css-tricks.com/flexbox-truncated-text/ */
+        text-overflow: ellipsis;
+        overflow: hidden;
+        padding-left: 2px;
+    }
+    #authlink {
+        text-decoration: none;
+        color: white;
+        padding: 0.6em;
+        background: #9900ff;
+        display: inline-block;
+        font-family: sans-serif;
+    }
+    #authlink:hover {
+        background: #bb33ff;
+    }
+    .hidden { display: none; }
+</style>
+<center><a id="authlink">Authorize</a></center>
+<div id="timelines"></div>
+<center><input id="loadMoreButton" type="button" value="More" onclick="loadMore(50)" class="hidden"/></center>
+<script src="timeline.js"></script>
+</body>
