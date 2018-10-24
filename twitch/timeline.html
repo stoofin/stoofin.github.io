@@ -1,5 +1,6 @@
 <head>
     <meta charset="utf-8"/>
+    <title>Broadcast Timeline</title>
 </head>
 <body>
 <style>
@@ -103,7 +104,14 @@
         background: #bb33ff;
     }
     .hidden { display: none; }
+    #srclink {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        font-size: 12px;
+    }
 </style>
+<a id="srclink" href="https://github.com/stoofin/stoofin.github.io/tree/master/twitch">Source</a>
 <center><a id="authlink">Authorize</a></center>
 <div id="timelines"></div>
 <center><input id="loadMoreButton" type="button" value="More" onclick="loadMore(50)" class="hidden"/></center>
