@@ -1,15 +1,15 @@
 <head>
-	<meta charset="utf-8"/>
+    <meta charset="utf-8"/>
 </head>
 <body>
 <style>
-	#timelines {
-		width: 100%;
-		font-family: Arial;
-	}
-	.timeline-container {
-		margin-bottom: 20px;
-	}
+    #timelines {
+        width: 100%;
+        font-family: Arial;
+    }
+    .timeline-container {
+        margin-bottom: 20px;
+    }
     .now-indicator {
         position: absolute;
         background: white;
@@ -17,7 +17,7 @@
         right: 0;
     }
     .stream-link {
-		text-decoration: none;
+        text-decoration: none;
         height: 100%;
         display: inline-flex;
         align-items: center;
@@ -40,22 +40,22 @@
     }
     .channel-name {
         font-size: 14px;
-		font-weight: normal;
+        font-weight: normal;
         width: 100px;
         padding: 0 5px;
         text-align: right;
         text-overflow: ellipsis;
         overflow: hidden;
     }
-	.timeline {
-		font-weight: normal;
-		position: relative;
-		min-height: 1.2em;
-		align-self: stretch;
-		flex-grow: 1;
-		background: #CCC;
-		font-size: 12px;
-	}
+    .timeline {
+        font-weight: normal;
+        position: relative;
+        min-height: 1.2em;
+        align-self: stretch;
+        flex-grow: 1;
+        background: #CCC;
+        font-size: 12px;
+    }
     .timeline-gridline {
         position: absolute;
         border-left: 1px solid rgba(255, 255, 255, 0.3);
@@ -68,23 +68,23 @@
     }
     .channel-timeline:nth-child(odd) .timeline {background: #DDD}
     .channel-timeline:nth-child(odd) .timeline-span {background: #CDF}
-	.timeline-span img {
+    .timeline-span img {
         max-height: 100%;
         align-self: stretch;
     }
-	.timeline-span {
-		text-decoration: none;
-		color: inherit;
-		display: flex;
+    .timeline-span {
+        text-decoration: none;
+        color: inherit;
+        display: flex;
         align-items: center;
-		background: #BCF;
-		height: 100%;
-		position: absolute;
-		top: 0;
-		white-space: nowrap;
-		border-left: 1px solid black;
+        background: #BCF;
+        height: 100%;
+        position: absolute;
+        top: 0;
+        white-space: nowrap;
+        border-left: 1px solid black;
         overflow: hidden;
-	}
+    }
     .timeline-span-text {
         min-width: 0; /* https://css-tricks.com/flexbox-truncated-text/ */
         text-overflow: ellipsis;
