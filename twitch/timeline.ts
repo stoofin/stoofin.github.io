@@ -1,6 +1,7 @@
 declare const authlink: HTMLAnchorElement;
 declare const loadMoreButton: HTMLInputElement;
 declare const timelines: HTMLDivElement;
+declare const statusSpan: HTMLSpanElement;
 
 let here = window.location.protocol === "file:" ? "http://localhost" : "https://stoofin.github.io/twitch/timeline.html";
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";
@@ -329,6 +330,11 @@ async function fetchTwitch(url: string) {
         }),
         method: "GET",
     });
+    if (response.status === 401) {
+        statusSpan.textContent = "Authorization token expired";
+        authlink.textContent = "Reauthorize";
+        authlink.style.visibility = "visible";
+    }
     return await response.json();
 }
 
@@ -496,9 +502,12 @@ function getAuthorization() {
     }
 
     if (oauthToken != null) {
-        authlink.textContent = "Reauthorize";
+        authlink.style.visibility = "hidden";
         loadMoreButton.classList.remove("hidden");
+    } else {
+        authlink.style.visibility = "visibile";
     }
+    statusSpan.textContent = "";
 }
 
 function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {

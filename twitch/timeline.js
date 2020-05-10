@@ -313,6 +313,11 @@ function fetchTwitch(url) {
             }),
             method: "GET",
         });
+        if (response.status === 401) {
+            statusSpan.textContent = "Authorization token expired";
+            authlink.textContent = "Reauthorize";
+            authlink.style.visibility = "visible";
+        }
         return yield response.json();
     });
 }
@@ -358,9 +363,13 @@ function getAuthorization() {
         window.history.replaceState(undefined, document.title, window.location.pathname + window.location.search);
     }
     if (oauthToken != null) {
-        authlink.textContent = "Reauthorize";
+        authlink.style.visibility = "hidden";
         loadMoreButton.classList.remove("hidden");
     }
+    else {
+        authlink.style.visibility = "visibile";
+    }
+    statusSpan.textContent = "";
 }
 function setDiff(a, b) {
     let r = new Set();
