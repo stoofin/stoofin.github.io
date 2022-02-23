@@ -1,15 +1,17 @@
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-let here = window.location.protocol === "file:" ? "http://localhost" : "https://stoofin.github.io/twitch/timeline.html";
+/*
+TODO:
+    Actually use cursors to load more if desired.
+        (Keep track of whose oldest loaded vod is most recent, and start with them)
+    For each channel, show the region prior to that channel's earliest known vod as unknown (white?)
+        To make it clear that just because one might exist earlier on another channel doesn't mean there can't be a vod there on the first.
+*/
+const CONCURRENT_ARCHIVE_REQUESTS = 20;
+let here = window.location.href.startsWith("http://localhost") ? "http://localhost:1666/timeline.html" : "https://stoofin.github.io/twitch/timeline.html";
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";
-authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=`;
+authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=user:read:follows`;
 class Pending {
+    promise;
+    resolve;
     constructor() {
         this.promise = new Promise((resolve, reject) => {
             this.resolve = resolve;
@@ -146,7 +148,7 @@ function layoutSegments(segments) {
         return Array.from(channels.keys()).sort().map(channel => channels.get(channel));
     });
 }
-function layoutToHTML(segmentsLayout) {
+function layoutToHTML(segmentsLayout, liveStreams) {
     console.log(segmentsLayout);
     function mk(tag, attrs = {}, children = []) {
         let elem = document.createElement(tag);
@@ -232,7 +234,6 @@ function layoutToHTML(segmentsLayout) {
         });
         return spanDiv;
     }
-    let nowStreams = [];
     function makeNowDiv(channel, userId) {
         let now = new Date();
         var firstSecond = firstSecondOfDay(now);
@@ -240,13 +241,13 @@ function layoutToHTML(segmentsLayout) {
         var dayLength = subDate(lastSecond, firstSecond);
         var left = (subDate(now, firstSecond) / dayLength * 100).toFixed(2) + "%";
         let liveLink = mk('a', { class: "stream-link", href: "https://twitch.tv/" + channel, title: "Offline" }, [text("0")]);
-        nowStreams.push({
-            userId,
-            onStream(s, gameName) {
+        liveStreams.then(streams => {
+            let s = streams.get(userId);
+            if (s != null) {
                 liveLink.classList.add("live");
-                liveLink.textContent = s.viewers + "";
-                liveLink.title = s.channel.status + "\n" + gameName;
-            },
+                liveLink.textContent = s.viewer_count + "";
+                liveLink.title = s.title + "\n" + s.game_name;
+            }
         });
         return mk('div', { class: "now-indicator", style: `left: ${left};` }, [
             liveLink
@@ -275,22 +276,10 @@ function layoutToHTML(segmentsLayout) {
     for (let day of segmentsLayout.slice().reverse()) {
         timelines.appendChild(makeDayDiv(day));
     }
-    function getLiveInfo(queries) {
-        return __awaiter(this, void 0, void 0, function* () {
-            let streams = yield twitchGetStreams(queries.map(query => query.userId));
-            for (let stream of streams.streams) {
-                for (let query of queries) {
-                    if (stream.channel._id + "" === query.userId) {
-                        query.onStream(stream, stream.game);
-                    }
-                }
-            }
-        });
-    }
-    getLiveInfo(nowStreams);
     window.layout = segmentsLayout;
 }
-let oauthToken = undefined;
+let userAccessToken = undefined;
+let localUser = undefined;
 function stripUndefined(obj) {
     let stripped = {};
     for (let key in obj) {
@@ -301,70 +290,89 @@ function stripUndefined(obj) {
     }
     return stripped;
 }
-function fetchTwitch(url) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // Because of the custom header this request will be preflighted
-        // https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#Simple_requests
-        let response = yield fetch(url, {
-            headers: stripUndefined({
-                "Accept": "application/vnd.twitchtv.v5+json",
-                "Client-ID": clientId,
-                "Authorization": oauthToken,
-            }),
-            method: "GET",
-        });
-        if (response.status === 401) {
-            statusSpan.textContent = "Authorization token expired";
-            authlink.textContent = "Reauthorize";
-            authlink.style.visibility = "visible";
-        }
-        return yield response.json();
+function requireReauthorization() {
+    statusSpan.textContent = "Authorization token expired";
+    authlink.textContent = "Reauthorize";
+    authlink.style.visibility = "visible";
+}
+async function fetchTwitch(url) {
+    // Because of the custom header this request will be preflighted
+    // https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#Simple_requests
+    let response = await fetch(url, {
+        headers: stripUndefined({
+            "Client-ID": clientId,
+            "Authorization": `Bearer ${userAccessToken}`,
+        }),
+        method: "GET",
     });
+    if (response.status === 401) {
+        requireReauthorization();
+    }
+    return await response.json();
+}
+function twitchUser() {
+    // Gets user by bearer token. Used to get the user's id for other queries.
+    return fetchTwitch(`https://api.twitch.tv/helix/users`);
 }
 function twitchUsers(userNames) {
-    return fetchTwitch(`https://api.twitch.tv/kraken/users?login=${userNames.join(',')}`);
+    return fetchTwitch(`https://api.twitch.tv/helix/users?login=${userNames.join('&login=')}`);
 }
-// Numerical user ids => streams
-function twitchGetStreams(userIds) {
-    return fetchTwitch(`https://api.twitch.tv/kraken/streams/?channel=${userIds.join(',')}&stream_type=live`);
+function twitchGetFollowedStreams(userId) {
+    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
 }
-function followVideos(offset, limit) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return fetchTwitch(`https://api.twitch.tv/kraken/videos/followed?offset=${offset}&limit=${limit}&broadcast_type=archive&sort=time`);
+function twitchGetFollows(fromId) {
+    return fetchTwitch(`https://api.twitch.tv/helix/users/follows?from_id=${fromId}&first=100`);
+}
+function twitchGetUserArchiveVideos(userId, after_cursor) {
+    let pagination = after_cursor != null ? `&after=${after_cursor}` : '';
+    return fetchTwitch(`https://api.twitch.tv/helix/videos?user_id=${userId}&first=10&type=archive${pagination}`);
+}
+const DURATION_REGEX = /^(?:(\d+)d)?(?:(\d+)+h)?(?:(\d+)+m)?(?:(\d+)s)?$/;
+const DURATION_MILLIS = [24 * 60 * 60 * 1000, 60 * 60 * 1000, 60 * 1000, 1000];
+function apiDurationToMilliseconds(duration) {
+    let m = duration.match(DURATION_REGEX);
+    if (m == null) {
+        console.error("Improperly formatted duration: " + duration);
+        return 0;
+    }
+    let millis = 0;
+    m.slice(1).forEach((v, i) => {
+        if (v != null) {
+            millis += parseInt(v) * DURATION_MILLIS[i];
+        }
     });
+    return millis;
 }
-function twitchBroadcastsToVideos(broadcasts) {
-    return broadcasts.map(broadcast => {
-        var start = new Date(broadcast.created_at);
-        var end = new Date(start.getTime() + broadcast.length * 1000);
-        return {
-            title: broadcast.title,
-            start: start,
-            end: end,
-            id: broadcast._id.substr(1),
-            channel: broadcast.channel.name,
-            user_id: broadcast.channel._id + "",
-            game: broadcast.game
-        };
-    });
+function twitchBroadcastToVideo(broadcast) {
+    var start = new Date(broadcast.created_at);
+    var end = new Date(start.getTime() + apiDurationToMilliseconds(broadcast.duration));
+    return {
+        title: broadcast.title,
+        start: start,
+        end: end,
+        id: broadcast.id,
+        channel: broadcast.user_login,
+        user_id: broadcast.user_id,
+        game: broadcast.description,
+        stream_id: broadcast.stream_id,
+    };
 }
 function getAuthorization() {
     // Checks if we've been redirected back from an authorization request
     let m = window.location.hash.match(/^#access_token=(\w+)/);
     if (m == null) {
-        let storedToken = window.localStorage.getItem("Token");
+        let storedToken = window.localStorage.getItem("UserAccessToken");
         if (storedToken != null) {
-            oauthToken = storedToken;
+            userAccessToken = storedToken;
         }
     }
     else {
-        oauthToken = "OAuth " + m[1];
-        window.localStorage.setItem("Token", oauthToken);
+        userAccessToken = m[1];
+        window.localStorage.setItem("UserAccessToken", userAccessToken);
         window.history.replaceState(undefined, document.title, window.location.pathname + window.location.search);
     }
-    if (oauthToken != null) {
+    if (userAccessToken != null) {
         authlink.style.visibility = "hidden";
-        loadMoreButton.classList.remove("hidden");
     }
     else {
         authlink.style.visibility = "visibile";
@@ -391,41 +399,189 @@ function setUnion(a, b) {
     return r;
 }
 let seenUserNames = new Set();
-function loadUserIcons(userNames) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let newUserNames = setDiff(userNames, seenUserNames);
-        seenUserNames = setUnion(seenUserNames, userNames);
-        if (newUserNames.size > 0) {
-            let users = yield twitchUsers(Array.from(newUserNames));
-            for (let user of users.users) {
-                registerChannelIcon(user.name, user.logo);
+async function loadUserIcons(userNames) {
+    let newUserNames = setDiff(userNames, seenUserNames);
+    seenUserNames = setUnion(seenUserNames, userNames);
+    if (newUserNames.size > 0) {
+        let users = await twitchUsers(Array.from(newUserNames));
+        for (let user of users.data) {
+            registerChannelIcon(user.login, user.profile_image_url);
+        }
+    }
+}
+class PriorityRequest {
+    priority;
+    start;
+}
+function processConcurrentTasks(numConcurrent, requests) {
+    let activeRequests = 0;
+    let pendingYields = [];
+    let notify = (_whatever) => { };
+    let monitor = undefined;
+    function removeHighestPriority() {
+        if (requests.length === 0)
+            return undefined;
+        let priority = requests[0].priority;
+        let index = 0;
+        for (let i = 1; i < requests.length; i++) {
+            if (requests[i].priority > priority) {
+                priority = requests[i].priority;
+                index = i;
+            }
+        }
+        let result = requests[index];
+        requests[index] = requests[requests.length - 1];
+        requests.pop();
+        return result;
+    }
+    function pump() {
+        // The idea is that priorities can be mutated from outside as information comes in
+        let task = removeHighestPriority();
+        if (task != null) {
+            activeRequests += 1;
+            task.start().then(v => {
+                pendingYields.push(v);
+            }).finally(() => {
+                activeRequests -= 1;
+                pump();
+                monitor = undefined;
+                notify(null);
+            });
+        }
+    }
+    for (let i = 0; i < numConcurrent; i++) {
+        pump();
+    }
+    return {
+        [Symbol.asyncIterator]() {
+            return {
+                async next(arg) {
+                    while (pendingYields.length === 0 && activeRequests > 0) {
+                        if (monitor == null) {
+                            monitor = new Promise(resolve => notify = resolve);
+                        }
+                        await monitor;
+                    }
+                    if (pendingYields.length === 0 && activeRequests === 0) {
+                        return { done: true, value: undefined };
+                    }
+                    else {
+                        return {
+                            value: pendingYields.shift(),
+                            done: false,
+                        };
+                    }
+                }
+            };
+        },
+        addTasks(toAdd) {
+            for (let r of toAdd) {
+                requests.push(r);
+            }
+            let toPump = numConcurrent - activeRequests;
+            for (let i = 0; i < toPump; i++) {
+                pump();
+            }
+        },
+        hasPendingYields() {
+            return pendingYields.length > 0;
+        }
+    };
+}
+async function testPriorityAsync() {
+    async function waitRandom() {
+        return new Promise(resolve => {
+            setTimeout(() => resolve(null), 500 + Math.random() * 500);
+        });
+    }
+    let tasks = [];
+    for (let i = 0; i < 50; i++) {
+        tasks.push({ priority: 0, start: async () => { await waitRandom(); return i; } });
+    }
+    for await (let index of processConcurrentTasks(10, tasks)) {
+        console.log(index);
+    }
+    console.log("Done!");
+}
+async function initial() {
+    // await testPriorityAsync();
+    // return;
+    getAuthorization();
+    if (userAccessToken == null)
+        return;
+    let channelVODTasks = new Map();
+    function makeChannelVODTask(user_id, priority) {
+        let request = {
+            priority: priority,
+            start: () => twitchGetUserArchiveVideos(user_id),
+        };
+        channelVODTasks.set(user_id, request);
+        return request;
+    }
+    let priorities = JSON.parse(localStorage.getItem('channelPriorities') ?? '{}');
+    let vodRequestQueue = processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, Object.entries(priorities).map(([id, priority]) => makeChannelVODTask(id, priority)));
+    statusSpan.textContent = "Getting user id...";
+    localUser = (await twitchUser()).data[0];
+    async function liveStreams() {
+        let m = new Map();
+        if (localUser == null)
+            return m;
+        let streams = await twitchGetFollowedStreams(localUser.id);
+        for (let stream of streams.data) {
+            m.set(stream.user_id, stream);
+        }
+        return m;
+    }
+    let followedStreamsPromise = liveStreams();
+    statusSpan.textContent = "Getting follows...";
+    let follows = await twitchGetFollows(localUser.id);
+    // Don't need to wait for this operation
+    loadUserIcons(new Set(follows.data.map(follow => follow.to_name)));
+    let numChannels = follows.data.length;
+    let numChannelLoaded = 0;
+    statusSpan.textContent = `Getting video archives (0/${numChannels})...`;
+    let firstRender = true;
+    let lastRender = performance.now();
+    let allVideos = [];
+    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.to_id));
+    let videoRequestTasks = follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow => makeChannelVODTask(follow.to_id, priorities[follow.to_id] ?? 0));
+    vodRequestQueue.addTasks(videoRequestTasks);
+    let newPriorities = {};
+    followedStreamsPromise.then(followedStreams => {
+        // Bump up priority of live streams
+        for (let fs of followedStreams.values()) {
+            let task = channelVODTasks.get(fs.user_id);
+            if (task != null) {
+                task.priority = new Date().valueOf();
             }
         }
     });
-}
-let loadedVideos = [];
-let offset = 0;
-function loadMore(n) {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (oauthToken == null)
-            return;
-        let videosPromise = followVideos(offset, n);
-        offset += n;
-        let videos = yield videosPromise;
-        if (videos.videos.length === 0) {
-            loadMoreButton.style.display = 'none';
-            return;
+    outer: for await (let vids of vodRequestQueue) {
+        numChannelLoaded += 1;
+        for (let broadcast of vids.data) {
+            if (!actuallyInterestedIn.has(broadcast.user_id)) {
+                continue outer;
+            }
+            let video = twitchBroadcastToVideo(broadcast);
+            allVideos.push(video);
+            newPriorities[broadcast.user_id] = Math.max(newPriorities[broadcast.user_id] ?? 0, video.end.valueOf());
+            if (performance.now() - lastRender > 500 || firstRender && !vodRequestQueue.hasPendingYields()) {
+                statusSpan.textContent = `Getting video archives (${numChannelLoaded}/${numChannels})...`;
+                layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+                lastRender = performance.now();
+                firstRender = false;
+            }
         }
-        loadUserIcons(new Set(videos.videos.map(v => v.channel.name)));
-        loadedVideos = loadedVideos.concat(videos.videos);
-        layoutToHTML(layoutSegments(getSegments(twitchBroadcastsToVideos(loadedVideos))));
-    });
+    }
+    try {
+        localStorage.setItem('channelPriorities', JSON.stringify(newPriorities));
+    }
+    finally { }
+    statusSpan.textContent = "Rendering...";
+    layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+    statusSpan.textContent = "";
 }
-function initial() {
-    return __awaiter(this, void 0, void 0, function* () {
-        getAuthorization();
-        loadMore(25);
-    });
-}
-initial();
+initial().catch(reason => {
+    statusSpan.textContent = "oh no: " + reason;
+});
 //# sourceMappingURL=timeline.js.map

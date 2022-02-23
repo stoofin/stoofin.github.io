@@ -1,11 +1,20 @@
 declare const authlink: HTMLAnchorElement;
-declare const loadMoreButton: HTMLInputElement;
 declare const timelines: HTMLDivElement;
 declare const statusSpan: HTMLSpanElement;
 
-let here = window.location.protocol === "file:" ? "http://localhost" : "https://stoofin.github.io/twitch/timeline.html";
+/*
+TODO:
+    Actually use cursors to load more if desired.
+        (Keep track of whose oldest loaded vod is most recent, and start with them)
+    For each channel, show the region prior to that channel's earliest known vod as unknown (white?)
+        To make it clear that just because one might exist earlier on another channel doesn't mean there can't be a vod there on the first.
+*/
+
+const CONCURRENT_ARCHIVE_REQUESTS = 20;
+
+let here = window.location.href.startsWith("http://localhost") ? "http://localhost:1666/timeline.html" : "https://stoofin.github.io/twitch/timeline.html";
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";
-authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=`;
+authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=user:read:follows`;
 
 class Pending<T> {
     promise: Promise<T>;
@@ -159,7 +168,7 @@ function layoutSegments(segments: Segment[]): Segment[][][] {
         });
 }
 
-function layoutToHTML(segmentsLayout: Segment[][][]) {
+function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<string, TwitchStream>>) {
     console.log(segmentsLayout);
 
     function mk(tag: string, attrs: {[name: string]: any} = {}, children: Iterable<Node> = []): HTMLElement {
@@ -238,6 +247,7 @@ function layoutToHTML(segmentsLayout: Segment[][][]) {
         }, [
             mk('span', {class: "timeline-span-text"}, [text(video.title)])
         ]);
+
         getChannelIcon(video.channel).promise.then(imgSrc => {
             if (imgSrc != null) {
                 prependChild(spanDiv, mk("img", {src: imgSrc}));
@@ -245,7 +255,6 @@ function layoutToHTML(segmentsLayout: Segment[][][]) {
         });
         return spanDiv;
     }
-    let nowStreams: { userId: string, onStream(s: TwitchStream, gameName: string): void }[] = [];
     function makeNowDiv(channel: string, userId: string) {
         let now = new Date();
         var firstSecond = firstSecondOfDay(now);
@@ -255,13 +264,13 @@ function layoutToHTML(segmentsLayout: Segment[][][]) {
 
         let liveLink = mk('a', {class: "stream-link", href: "https://twitch.tv/" + channel, title: "Offline"}, [text("0")]);
         
-        nowStreams.push({
-            userId,
-            onStream(s: TwitchStream, gameName: string) {
+        liveStreams.then(streams => {
+            let s = streams.get(userId);
+            if (s != null) {
                 liveLink.classList.add("live");
-                liveLink.textContent = s.viewers + "";
-                liveLink.title = s.channel.status + "\n" + gameName;
-            },
+                liveLink.textContent = s.viewer_count + "";
+                liveLink.title = s.title + "\n" + s.game_name;
+            }
         });
         return mk('div', {class: "now-indicator", style: `left: ${left};`}, [
             liveLink
@@ -292,21 +301,11 @@ function layoutToHTML(segmentsLayout: Segment[][][]) {
     for (let day of segmentsLayout.slice().reverse()) {
         timelines.appendChild(makeDayDiv(day));
     }
-    async function getLiveInfo(queries: { userId: string, onStream(s: TwitchStream, gameName: string): void }[]) {
-        let streams = await twitchGetStreams(queries.map(query => query.userId));
-        for (let stream of streams.streams) {
-            for (let query of queries) {
-                if (stream.channel._id+"" === query.userId) {
-                    query.onStream(stream, stream.game);
-                }
-            }
-        }
-    }
-    getLiveInfo(nowStreams);
     (window as any).layout = segmentsLayout;
 }
 
-let oauthToken: string|undefined = undefined;
+let userAccessToken: string|undefined = undefined;
+let localUser: TwitchUser|undefined = undefined;
 
 function stripUndefined<T>(obj: {[key: string]: T|undefined}): {[key: string]: T} {
     let stripped: {[key: string]: T} = {};
@@ -319,147 +318,117 @@ function stripUndefined<T>(obj: {[key: string]: T|undefined}): {[key: string]: T
     return stripped;
 }
 
+function requireReauthorization() {
+    statusSpan.textContent = "Authorization token expired";
+    authlink.textContent = "Reauthorize";
+    authlink.style.visibility = "visible";
+}
+
 async function fetchTwitch(url: string) {
     // Because of the custom header this request will be preflighted
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#Simple_requests
     let response = await fetch(url, {
         headers: stripUndefined({
-            "Accept": "application/vnd.twitchtv.v5+json",
             "Client-ID": clientId,
-            "Authorization": oauthToken,
+            "Authorization": `Bearer ${userAccessToken}`,
         }),
         method: "GET",
     });
     if (response.status === 401) {
-        statusSpan.textContent = "Authorization token expired";
-        authlink.textContent = "Reauthorize";
-        authlink.style.visibility = "visible";
+        requireReauthorization();
     }
     return await response.json();
 }
 
 interface TwitchUser {
-    "_id": string, // "44322889",
-    "bio": string, // "Just a gamer playing games and chatting. :)",
-    "created_at": string, // "2013-06-03T19:12:02.580593Z",
-    "display_name": string, // "dallas",
-    "logo": string|null, // "https://static-cdn.jtvnw.net/jtv_user_pictures/dallas-profile_image-1a2c906ee2c35f12-300x300.png",
-    "name": string, // "dallas",
-    "type": string, // "staff",
-    "updated_at": string, // "2017-02-09T16:32:06.784398Z"
+    "id": string, // "141981764",
+    "login": string, // "twitchdev",
+    "display_name": string, // "TwitchDev",
+    "type": string, // "",
+    "broadcaster_type": string, // "partner",
+    "description": string, // "Supporting third-party developers building Twitch integrations from chatbots to game integrations.",
+    "profile_image_url": string, // "https://static-cdn.jtvnw.net/jtv_user_pictures/8a6381c7-d0c0-4576-b179-38bd5ce1d6af-profile_image-300x300.png",
+    "offline_image_url": string, // "https://static-cdn.jtvnw.net/jtv_user_pictures/3f13ab61-ec78-4fe6-8481-8682cb3b0ac2-channel_offline_image-1920x1080.png",
+    "view_count": number, // 5980557,
+    "email"?: string, // "not-real@email.com",
+    "created_at": string, // "2016-12-14T20:32:28Z"
 }
 
-function twitchUsers(userNames: string[]): Promise<{ users: TwitchUser[] }> {
-    return fetchTwitch(`https://api.twitch.tv/kraken/users?login=${userNames.join(',')}`);
+function twitchUser(): Promise<{ data: TwitchUser[] }> {
+    // Gets user by bearer token. Used to get the user's id for other queries.
+    return fetchTwitch(`https://api.twitch.tv/helix/users`);
+}
+
+function twitchUsers(userNames: string[]): Promise<{ data: TwitchUser[] }> {
+    return fetchTwitch(`https://api.twitch.tv/helix/users?login=${userNames.join('&login=')}`);
 }
 
 interface TwitchStream {
-    "_id": number,
-    "average_fps": number,
-    "channel": {
-        "_id": number,
-        "broadcaster_language": string, // "en",
-        "created_at": string, // "2016-04-06T04:12:40Z",
-        "display_name": string, // "MOONMOON_OW",
-        "followers": number,
-        "game": string, // "Overwatch",
-        "language": string, // "en",
-        "logo": string, // "https://static-cdn.jtvnw.net/jtv_user_pictures/moonmoon_ow-profile_image-0fe586039bb28259-300x300.png",
-        "mature": boolean,
-        "name": string, // "moonmoon_ow",
-        "partner": boolean,
-        "profile_banner": string, // "https://static-cdn.jtvnw.net/jtv_user_pictures/moonmoon_ow-profile_banner-13fbfa1ba07bcd8a-480.png",
-        "profile_banner_background_color": null,
-        "status": string, // "KKona where my Darryl subs at KKona",
-        "updated_at": string, // "2016-12-15T20:04:53Z",
-        "url": string, // "https://www.twitch.tv/moonmoon_ow",
-        "video_banner": string, // "https://static-cdn.jtvnw.net/jtv_user_pictures/moonmoon_ow-channel_offline_image-2b3302e20384eee8-1920x1080.png",
-        "views": number
-    },
-    "created_at": string, // "2016-12-15T14:55:49Z",
-    "delay": number,
-    "game": string, // "Overwatch",
-    "is_playlist": boolean,
-    "preview": {
-        "large": string, // "https://static-cdn.jtvnw.net/previews-ttv/live_user_moonmoon_ow-640x360.jpg",
-        "medium": string, // "https://static-cdn.jtvnw.net/previews-ttv/live_user_moonmoon_ow-320x180.jpg",
-        "small": string, // "https://static-cdn.jtvnw.net/previews-ttv/live_user_moonmoon_ow-80x45.jpg",
-        "template": string, // "https://static-cdn.jtvnw.net/previews-ttv/live_user_moonmoon_ow-{width}x{height}.jpg"
-    },
-    "video_height": number,
-    "viewers": number
+    "id": string, // "42170724654",
+    "user_id": string, // "132954738",
+    "user_login": string, // "aws",
+    "user_name": string, // "AWS",
+    "game_id": string, // "417752",
+    "game_name": string, // "Talk Shows & Podcasts",
+    "type": string, // "live",
+    "title": string, // "AWS Howdy Partner! Y'all welcome ExtraHop to the show!",
+    "viewer_count": number, // 20,
+    "started_at": string, // "2021-03-31T20:57:26Z",
+    "language": string, // "en",
+    "thumbnail_url": string, // "https://static-cdn.jtvnw.net/previews-ttv/live_user_aws-{width}x{height}.jpg",
+    "tag_ids": string[] // [ "6ea6bca4-4712-4ab9-a906-e3336a9d8039" ]
 }
 
-// Numerical user ids => streams
-function twitchGetStreams(userIds: string[]): Promise<{ streams: TwitchStream[] }> {
-    return fetchTwitch(`https://api.twitch.tv/kraken/streams/?channel=${userIds.join(',')}&stream_type=live`);
+function twitchGetFollowedStreams(userId: string): Promise<{ data: TwitchStream[] }> {
+    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
+}
+
+interface TwitchFollow {
+    "from_id": string, // "171003792",
+    "from_login": string, // "iiisutha067iii",
+    "from_name": string, // "IIIsutha067III",
+    "to_id": string, // "23161357",
+    "to_name": string, // "LIRIK",
+    "followed_at": string // "2017-08-22T22:55:24Z"
+}
+
+function twitchGetFollows(fromId: string): Promise<TwitchPaginatedResult<TwitchFollow>> {
+    return fetchTwitch(`https://api.twitch.tv/helix/users/follows?from_id=${fromId}&first=100`);
 }
 
 interface TwitchVideo {
-    "_id": string,
-    "broadcast_id": number,
-    "broadcast_type": "archive"|"highlight"|"upload",
-    "channel": {
-       "_id": number,
-       "display_name": string,
-       "name": string
-    },
-    "created_at": string, // e.g. "2016-12-15T20:33:02Z"
-    "description": string|null,
-    "description_html": string|null,
-    "fps": {
-       "audio_only": number,
-       "chunked": number,
-       "high": number,
-       "low": number,
-       "medium": number,
-       "mobile": number
-    },
-    "game": string, // e.g. "Hearthstone: Heroes of Warcraft",
-    "language": string, // e.g. "en",
-    "length": number, // In seconds, probably
-    "preview": {
-       "large": string,
-       "medium": string,
-       "small": string,
-       "template": string,
-    },
-    "published_at": string, // e.g. "2016-12-15T20:33:02Z",
-    "resolutions": {
-       "chunked": string, // e.g. "1920x1080",
-       "high": string, // e.g. "1280x720",
-       "low": string, // e.g. "640x360",
-       "medium": string, // e.g. "852x480",
-       "mobile": string, // e.g. "400x226"
-    },
-    "status": string, // e.g. "recording",
-    "tag_list": string,
-    "thumbnails": {
-       "large": [{
-          "type": string, // e.g. "generated"
-          "url": string
-       }],
-       "medium": [{
-          "type": string,
-          "url": string
-       }],
-       "small": [{
-          "type": string,
-          "url": string
-       }],
-       "template": [{
-          "type": string,
-          "url": string
-       }]
-    },
-    "title": string,
-    "url": string,
-    "viewable": string, // e.g. "public",
-    "viewable_at": null,
-    "views": number
+    "id": string, // "335921245",
+    "stream_id": string|null,
+    "user_id": string, // "141981764",
+    "user_login": string, // "twitchdev",
+    "user_name": string, // "TwitchDev",
+    "title": string, // "Twitch Developers 101",
+    "description": string, // "Welcome to Twitch development! Here is a quick overview of our products and information to help you get started.",
+    "created_at": string, // "2018-11-14T21:30:18Z",
+    "published_at": string, // "2018-11-14T22:04:30Z",
+    "url": string, // "https://www.twitch.tv/videos/335921245",
+    "thumbnail_url": string, // "https://static-cdn.jtvnw.net/cf_vods/d2nvs31859zcd8/twitchdev/335921245/ce0f3a7f-57a3-4152-bc06-0c6610189fb3/thumb/index-0000000000-%{width}x%{height}.jpg",
+    "viewable": string, // "public",
+    "view_count": number, // 1863062,
+    "language": string, // "en",
+    "type": string, // "upload",
+    "duration": string, // "3m21s",
+    "muted_segments": [
+      {
+        "duration": number, // 30,
+        "offset": number, // 120
+      }
+    ]
 }
-async function followVideos(offset: number, limit: number): Promise<{ videos: TwitchVideo[] }> {
-    return fetchTwitch(`https://api.twitch.tv/kraken/videos/followed?offset=${offset}&limit=${limit}&broadcast_type=archive&sort=time`);
+
+interface TwitchPaginatedResult<T> {
+    data: T[],
+    pagination: { cursor: string }
+}
+
+function twitchGetUserArchiveVideos(userId: string, after_cursor?: string): Promise<TwitchPaginatedResult<TwitchVideo>> {
+    let pagination = after_cursor != null ? `&after=${after_cursor}` : '';
+    return fetchTwitch(`https://api.twitch.tv/helix/videos?user_id=${userId}&first=10&type=archive${pagination}`);
 }
 
 interface Video {
@@ -470,46 +439,62 @@ interface Video {
     channel: string,
     user_id: string,
     game: string,
+    stream_id: string|null,
 }
-function twitchBroadcastsToVideos(broadcasts: TwitchVideo[]): Video[] {
-    return broadcasts.map(broadcast => {
-        var start = new Date(broadcast.created_at);
-        var end = new Date(start.getTime() + broadcast.length * 1000);
-        return {
-            title: broadcast.title,
-            start: start,
-            end: end,
-            id: broadcast._id.substr(1),
-            channel: broadcast.channel.name,
-            user_id: broadcast.channel._id+"",
-            game: broadcast.game
-        };
+
+const DURATION_REGEX = /^(?:(\d+)d)?(?:(\d+)+h)?(?:(\d+)+m)?(?:(\d+)s)?$/;
+const DURATION_MILLIS = [24 * 60 * 60 * 1000, 60 * 60 * 1000, 60 * 1000, 1000];
+function apiDurationToMilliseconds(duration: string): number {
+    let m = duration.match(DURATION_REGEX);
+    if (m == null) {
+        console.error("Improperly formatted duration: " + duration);
+        return 0;
+    }
+    let millis = 0;
+    m.slice(1).forEach((v, i) => {
+        if (v != null) {
+            millis += parseInt(v) * DURATION_MILLIS[i];
+        }
     });
+    return millis;
+}
+
+function twitchBroadcastToVideo(broadcast: TwitchVideo): Video {
+    var start = new Date(broadcast.created_at);
+    var end = new Date(start.getTime() + apiDurationToMilliseconds(broadcast.duration));
+    return {
+        title: broadcast.title,
+        start: start,
+        end: end,
+        id: broadcast.id,
+        channel: broadcast.user_login,
+        user_id: broadcast.user_id,
+        game: broadcast.description, // New api doesn't have a game field for videos, only streams have that now
+        stream_id: broadcast.stream_id,
+    };
 }
 
 function getAuthorization() {
     // Checks if we've been redirected back from an authorization request
     let m = window.location.hash.match(/^#access_token=(\w+)/);
     if (m == null) {
-        let storedToken = window.localStorage.getItem("Token");
+        let storedToken = window.localStorage.getItem("UserAccessToken");
         if (storedToken != null) {
-            oauthToken = storedToken;
+            userAccessToken = storedToken;
         }
     } else {
-        oauthToken = "OAuth " + m[1];
-        window.localStorage.setItem("Token", oauthToken);
+        userAccessToken = m[1];
+        window.localStorage.setItem("UserAccessToken", userAccessToken);
         window.history.replaceState(undefined, document.title, window.location.pathname + window.location.search);
     }
 
-    if (oauthToken != null) {
+    if (userAccessToken != null) {
         authlink.style.visibility = "hidden";
-        loadMoreButton.classList.remove("hidden");
     } else {
         authlink.style.visibility = "visibile";
     }
     statusSpan.textContent = "";
 }
-
 function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {
     let r = new Set<T>();
     for (let v of a) {
@@ -536,34 +521,204 @@ async function loadUserIcons(userNames: Set<string>) {
     seenUserNames = setUnion(seenUserNames, userNames);
     if (newUserNames.size > 0) {
         let users = await twitchUsers(Array.from(newUserNames));
-        for (let user of users.users) {
-            registerChannelIcon(user.name, user.logo);
+        for (let user of users.data) {
+            registerChannelIcon(user.login, user.profile_image_url);
         }
     }
 }
 
-let loadedVideos: TwitchVideo[] = [];
-let offset = 0;
-async function loadMore(n: number) {
-    if (oauthToken == null) return;
-    let videosPromise = followVideos(offset, n);
-    offset += n;
-    let videos = await videosPromise;
+class PriorityRequest<T> {
+    priority: number;
+    start: () => Promise<T>;
+}
 
-    if (videos.videos.length === 0) {
-        loadMoreButton.style.display = 'none';
-        return;
+function processConcurrentTasks<T>(numConcurrent: number, requests: PriorityRequest<T>[]) {
+    let activeRequests: number = 0;
+    let pendingYields: T[] = [];
+    let notify = (_whatever: unknown) => {};
+    let monitor: Promise<void>|undefined = undefined;
+
+    function removeHighestPriority(): PriorityRequest<T>|undefined {
+        if (requests.length === 0) return undefined;
+        let priority = requests[0].priority;
+        let index = 0;
+        for (let i = 1; i < requests.length; i++) {
+            if (requests[i].priority > priority) {
+                priority = requests[i].priority;
+                index = i;
+            }
+        }
+        let result = requests[index];
+        requests[index] = requests[requests.length - 1];
+        requests.pop();
+        return result;
     }
 
-    loadUserIcons(new Set(videos.videos.map(v => v.channel.name)));
+    function pump() {
+        // The idea is that priorities can be mutated from outside as information comes in
+        let task = removeHighestPriority();
+        if (task != null) {
+            activeRequests += 1;
+            task.start().then(v => {
+                pendingYields.push(v);
+            }).finally(() => {
+                activeRequests -= 1;
+                pump();
+                monitor = undefined;
+                notify(null);
+            });
+        }
+    }
 
-    loadedVideos = loadedVideos.concat(videos.videos);
-    layoutToHTML(layoutSegments(getSegments(twitchBroadcastsToVideos(loadedVideos))));
+    for (let i = 0; i < numConcurrent; i++) {
+        pump();
+    }
+
+    return {
+        [Symbol.asyncIterator](): AsyncIterator<T, undefined, undefined> {
+            return {
+                async next(arg: undefined) {
+                    while (pendingYields.length === 0 && activeRequests > 0) {
+                        if (monitor == null) {
+                            monitor = new Promise(resolve => notify = resolve);
+                        }
+                        await monitor;
+                    }
+                    if (pendingYields.length === 0 && activeRequests === 0) {
+                        return { done: true, value: undefined };
+                    } else {
+                        return {
+                            value: pendingYields.shift()!,
+                            done: false,
+                        };
+                    }
+                }
+            }
+        },
+        addTasks(toAdd: PriorityRequest<T>[]) {
+            for (let r of toAdd) {
+                requests.push(r);
+            }
+            let toPump = numConcurrent - activeRequests;
+            for (let i = 0; i < toPump; i++) {
+                pump();
+            }
+        },
+        hasPendingYields() {
+            return pendingYields.length > 0;
+        }
+    };
+}
+
+async function testPriorityAsync() {
+    async function waitRandom() {
+        return new Promise(resolve => {
+            setTimeout(() => resolve(null), 500 + Math.random() * 500);
+        });
+    }
+    let tasks: PriorityRequest<number>[] = [];
+    for (let i = 0; i < 50; i++) {
+        tasks.push({ priority: 0, start: async () => { await waitRandom(); return i; } });
+    }
+    for await (let index of processConcurrentTasks(10, tasks)) {
+        console.log(index);
+    }
+    console.log("Done!");
 }
 
 async function initial() {
+    // await testPriorityAsync();
+
+    // return;
+
     getAuthorization();
-    loadMore(25);
+    if (userAccessToken == null) return;
+
+    let channelVODTasks = new Map<string, PriorityRequest<TwitchPaginatedResult<TwitchVideo>>>();
+    function makeChannelVODTask(user_id: string, priority: number): PriorityRequest<TwitchPaginatedResult<TwitchVideo>> {
+        let request = {
+            priority: priority,
+            start: () => twitchGetUserArchiveVideos(user_id),
+        };
+        channelVODTasks.set(user_id, request);
+        return request;
+    }
+
+    let priorities: {[user_id: string]: number} = JSON.parse(localStorage.getItem('channelPriorities') ?? '{}');
+    let vodRequestQueue = processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, Object.entries(priorities).map(([id, priority]) =>
+        makeChannelVODTask(id, priority)
+    ));
+
+    statusSpan.textContent = "Getting user id...";
+    localUser = (await twitchUser()).data[0];
+
+    async function liveStreams(): Promise<Map<string, TwitchStream>> {
+        let m = new Map<string, TwitchStream>();
+        if (localUser == null) return m;
+        let streams = await twitchGetFollowedStreams(localUser.id);
+        for (let stream of streams.data) {
+            m.set(stream.user_id, stream);
+        }
+        return m;
+    }
+    let followedStreamsPromise = liveStreams();
+
+    statusSpan.textContent = "Getting follows...";
+    let follows = await twitchGetFollows(localUser.id);
+
+    // Don't need to wait for this operation
+    loadUserIcons(new Set(follows.data.map(follow => follow.to_name)));
+
+    let numChannels = follows.data.length;
+    let numChannelLoaded = 0;
+    statusSpan.textContent = `Getting video archives (0/${numChannels})...`;
+
+    let firstRender = true;
+    let lastRender = performance.now();
+    let allVideos: Video[] = [];
+    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.to_id));
+    let videoRequestTasks = follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow =>
+        makeChannelVODTask(follow.to_id, priorities[follow.to_id] ?? 0)
+    );
+    vodRequestQueue.addTasks(videoRequestTasks);
+    let newPriorities: {[user_id: string]: number} = {};
+    
+    followedStreamsPromise.then(followedStreams => {
+        // Bump up priority of live streams
+        for (let fs of followedStreams.values()) {
+            let task = channelVODTasks.get(fs.user_id);
+            if (task != null) {
+                task.priority = new Date().valueOf();
+            }
+        }
+    });
+
+    outer: for await (let vids of vodRequestQueue) {
+        numChannelLoaded += 1;
+        for (let broadcast of vids.data) {
+            if (!actuallyInterestedIn.has(broadcast.user_id)) {
+                continue outer;
+            }
+            let video = twitchBroadcastToVideo(broadcast);
+            allVideos.push(video);
+            newPriorities[broadcast.user_id] = Math.max(newPriorities[broadcast.user_id] ?? 0, video.end.valueOf());
+            if  (performance.now() - lastRender > 500 || firstRender && !vodRequestQueue.hasPendingYields()) {
+                statusSpan.textContent = `Getting video archives (${numChannelLoaded}/${numChannels})...`;
+                layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+                lastRender = performance.now();
+                firstRender = false;
+            }
+        }
+    }
+    try {
+        localStorage.setItem('channelPriorities', JSON.stringify(newPriorities));
+    } finally {}
+    statusSpan.textContent = "Rendering...";
+
+    layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+    statusSpan.textContent = "";
 }
 
-initial();
+initial().catch(reason => {
+    statusSpan.textContent = "oh no: " + reason;
+});
