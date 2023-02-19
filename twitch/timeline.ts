@@ -276,30 +276,66 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
             liveLink
         ]);
     }
-    function makeTimelineDiv(channel: Segment[]) {
-        let channelName = channel[0].video.channel;
-        let channelId = channel[0].video.user_id;
-
+    function isToday(d: Date) {
+        return eqDay(d, new Date());
+    }
+    function makeTimelineDiv(channelName: string, channelId: string, segments: Segment[], today: boolean) {
         return mk('div', {class: "channel-timeline"}, [
             mk('div', {class: "channel-name"}, [text(channelName)]),
             mk('div', {class: "timeline"}, flatten([
                 makeGridLines(),
-                eqDay(channel[0].span.start, new Date()) ? [makeNowDiv(channelName, channelId)] : [],
-                channel.map(segment => makeSegmentDiv(segment))
+                today ? [makeNowDiv(channelName, channelId)] : [],
+                segments.map(segment => makeSegmentDiv(segment))
             ]))
         ]);
     }
-    function makeDayDiv(channels: Segment[][]) {
-        let day = channels[0][0].span.start;
-        return mk('div', {class: "timeline-container"}, flatten([
-            [mk('div', {class: "timeline-date-title"}, [text(dateToString(day))])],
-            channels.map(channel => makeTimelineDiv(channel))
-        ]));
+    function makeDayDiv(day: Date, channels: Segment[][]) {
+        let today = isToday(day);
+        let channelMap = new Map(channels.map(c =>
+            [
+                c[0].video.user_id,
+                {name: c[0].video.channel, id: c[0].video.user_id, segments: c}
+            ]
+        ));
+
+        function innerMakeTimeline() {
+            let a = Array.from(channelMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+            return mk('div', {class: "timeline-container"}, flatten([
+                [mk('div', {class: "timeline-date-title"}, [text(dateToString(day))])],
+                a.map(c => makeTimelineDiv(c.name, c.id, c.segments, today))
+            ]));
+        }
+
+        let container = innerMakeTimeline();
+
+        if (today) {
+            liveStreams.then(streams => {
+                // Rebuild with live but no-vod channels
+                let shouldRebuild = false;
+                for (let s of streams.values()) {
+                    if (!channelMap.has(s.user_id)) {
+                        shouldRebuild = true;
+                        channelMap.set(s.user_id, {name: s.user_name, id: s.user_id, segments: []});
+                    }
+                }
+                if (shouldRebuild) {
+                    container.parentElement?.replaceChild(innerMakeTimeline(), container);
+                }
+            })
+        }
+
+        return container;
     }
 
     timelines.innerHTML = '';
-    for (let day of segmentsLayout.slice().reverse()) {
-        timelines.appendChild(makeDayDiv(day));
+    {
+        let toLayout = segmentsLayout.slice().reverse();
+        if (!isToday(toLayout[0][0][0].video.start)) {
+            timelines.appendChild(makeDayDiv(new Date(), []));
+        }
+        for (let dayLayout of toLayout) {
+            timelines.appendChild(makeDayDiv(dayLayout[0][0].video.start, dayLayout));
+        }
     }
     (window as any).layout = segmentsLayout;
 }
