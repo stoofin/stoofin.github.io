@@ -96,6 +96,9 @@ function splitIntoDaySegments(start: Date, end: Date): Span[] {
     }
     return spans;
 }
+function last<T>(arr: T[]): T {
+    return arr[arr.length - 1];
+}
 
 function getSegments(videos: Video[]): Segment[] {
     let segments: Segment[] = [];
@@ -239,10 +242,17 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
         var left = (subDate(span.start, firstSecond) / dayLength * 100).toFixed(2) + "%";
         var right = (subDate(lastSecond, span.end) / dayLength * 100).toFixed(2) + "%";
 
+        let url: string;
+        if (video.id === "placeholder") {
+            url = "https://twitch.tv/" + video.channel;
+        } else {
+            url = "https://twitch.tv/videos/" + video.id + makeTimeArgument(subDate(span.start, video.start));
+        }
+
         var spanDiv = mk("a", {
-            class: "timeline-span",
+            class: "timeline-span" + (video.id === "placeholder" ? " placeholder" : ""),
             title: video.title + "\n" + video.game,
-            href: "https://twitch.tv/videos/" + video.id + makeTimeArgument(subDate(span.start, video.start)),
+            href: url,
             style: `left: ${left}; right: ${right}`,
         }, [
             mk('span', {class: "timeline-span-text"}, [text(video.title)])
@@ -315,7 +325,20 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
                 for (let s of streams.values()) {
                     if (!channelMap.has(s.user_id)) {
                         shouldRebuild = true;
-                        channelMap.set(s.user_id, {name: s.user_name, id: s.user_id, segments: []});
+                        let startDate = new Date(s.started_at);
+                        channelMap.set(s.user_id, {name: s.user_login, id: s.user_id, segments: [{
+                            span: last(splitIntoDaySegments(startDate, new Date())),
+                            video: {
+                                channel: s.user_login,
+                                start: startDate,
+                                end: new Date(),
+                                game: s.game_name,
+                                id: "placeholder",
+                                stream_id: s.id,
+                                title: s.title,
+                                user_id: s.user_id,
+                            }
+                        }]});
                     }
                 }
                 if (shouldRebuild) {
