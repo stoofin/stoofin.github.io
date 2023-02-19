@@ -10,6 +10,7 @@ TODO:
         To make it clear that just because one might exist earlier on another channel doesn't mean there can't be a vod there on the first.
 */
 
+const STREAM_PLACEHOLDER_ID = "stream_placeholder";
 const CONCURRENT_ARCHIVE_REQUESTS = 20;
 
 let here = window.location.href.startsWith("http://localhost") ? "http://localhost:1666/timeline.html" : "https://stoofin.github.io/twitch/timeline.html";
@@ -243,14 +244,14 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
         var right = (subDate(lastSecond, span.end) / dayLength * 100).toFixed(2) + "%";
 
         let url: string;
-        if (video.id === "placeholder") {
+        if (video.id === STREAM_PLACEHOLDER_ID) {
             url = "https://twitch.tv/" + video.channel;
         } else {
             url = "https://twitch.tv/videos/" + video.id + makeTimeArgument(subDate(span.start, video.start));
         }
 
         var spanDiv = mk("a", {
-            class: "timeline-span" + (video.id === "placeholder" ? " placeholder" : ""),
+            class: "timeline-span" + (video.id === STREAM_PLACEHOLDER_ID ? " placeholder" : ""),
             title: video.title + "\n" + video.game,
             href: url,
             style: `left: ${left}; right: ${right}`,
@@ -286,79 +287,30 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
             liveLink
         ]);
     }
-    function isToday(d: Date) {
-        return eqDay(d, new Date());
-    }
-    function makeTimelineDiv(channelName: string, channelId: string, segments: Segment[], today: boolean) {
+    function makeTimelineDiv(channel: Segment[]) {
+        let channelName = channel[0].video.channel;
+        let channelId = channel[0].video.user_id;
+
         return mk('div', {class: "channel-timeline"}, [
             mk('div', {class: "channel-name"}, [text(channelName)]),
             mk('div', {class: "timeline"}, flatten([
                 makeGridLines(),
-                today ? [makeNowDiv(channelName, channelId)] : [],
-                segments.map(segment => makeSegmentDiv(segment))
+                eqDay(channel[0].span.start, new Date()) ? [makeNowDiv(channelName, channelId)] : [],
+                channel.map(segment => makeSegmentDiv(segment))
             ]))
         ]);
     }
-    function makeDayDiv(day: Date, channels: Segment[][]) {
-        let today = isToday(day);
-        let channelMap = new Map(channels.map(c =>
-            [
-                c[0].video.user_id,
-                {name: c[0].video.channel, id: c[0].video.user_id, segments: c}
-            ]
-        ));
-
-        function innerMakeTimeline() {
-            let a = Array.from(channelMap.values()).sort((a, b) => a.name.localeCompare(b.name))
-            return mk('div', {class: "timeline-container"}, flatten([
-                [mk('div', {class: "timeline-date-title"}, [text(dateToString(day))])],
-                a.map(c => makeTimelineDiv(c.name, c.id, c.segments, today))
-            ]));
-        }
-
-        let container = innerMakeTimeline();
-
-        if (today) {
-            liveStreams.then(streams => {
-                // Rebuild with live but no-vod channels
-                let shouldRebuild = false;
-                for (let s of streams.values()) {
-                    if (!channelMap.has(s.user_id)) {
-                        shouldRebuild = true;
-                        let startDate = new Date(s.started_at);
-                        channelMap.set(s.user_id, {name: s.user_login, id: s.user_id, segments: [{
-                            span: last(splitIntoDaySegments(startDate, new Date())),
-                            video: {
-                                channel: s.user_login,
-                                start: startDate,
-                                end: new Date(),
-                                game: s.game_name,
-                                id: "placeholder",
-                                stream_id: s.id,
-                                title: s.title,
-                                user_id: s.user_id,
-                            }
-                        }]});
-                    }
-                }
-                if (shouldRebuild) {
-                    container.parentElement?.replaceChild(innerMakeTimeline(), container);
-                }
-            })
-        }
-
-        return container;
+    function makeDayDiv(channels: Segment[][]) {
+        let day = channels[0][0].span.start;
+        return mk('div', {class: "timeline-container"}, flatten([
+            [mk('div', {class: "timeline-date-title"}, [text(dateToString(day))])],
+            channels.map(channel => makeTimelineDiv(channel))
+        ]));
     }
 
     timelines.innerHTML = '';
-    {
-        let toLayout = segmentsLayout.slice().reverse();
-        if (!isToday(toLayout[0][0][0].span.start)) {
-            timelines.appendChild(makeDayDiv(new Date(), []));
-        }
-        for (let dayLayout of toLayout) {
-            timelines.appendChild(makeDayDiv(dayLayout[0][0].span.start, dayLayout));
-        }
+    for (let day of segmentsLayout.slice().reverse()) {
+        timelines.appendChild(makeDayDiv(day));
     }
     (window as any).layout = segmentsLayout;
 }
@@ -752,6 +704,46 @@ async function initial() {
         }
     });
 
+    followedStreamsPromise.then(followedStreams => {
+        for (let s of followedStreams.values()) {
+            allVideos.push({
+                channel: s.user_login,
+                start: new Date(s.started_at),
+                end: new Date(),
+                game: s.game_name,
+                id: STREAM_PLACEHOLDER_ID,
+                stream_id: s.id,
+                title: s.title,
+                user_id: s.user_id,
+            });
+        }
+    });
+
+    function videosOverlap(a: Video, b: Video): boolean {
+        return a.start <= b.end && b.start <= a.end;
+    }
+    function filterPlaceholders(videos: Video[]) {
+        let toRemove = new Set<Video>();
+        for (let [channel, vs] of groupByValue(videos, v => v.channel)) {
+            for (let v of vs) {
+                if (v.id === STREAM_PLACEHOLDER_ID) {
+                    for (let ov of vs) {
+                        if (ov !== v && videosOverlap(ov, v)) {
+                            toRemove.add(v);
+                        }
+                    }
+                }
+            }
+        }
+        return videos.filter(v => !toRemove.has(v));
+    }
+
+    function renderTimelines() {
+        let filteredVideos = filterPlaceholders(allVideos);
+        let allSegments = getSegments(filteredVideos);
+        layoutToHTML(layoutSegments(allSegments), followedStreamsPromise);
+    }
+
     outer: for await (let vids of vodRequestQueue) {
         numChannelLoaded += 1;
         for (let broadcast of vids.data) {
@@ -763,7 +755,7 @@ async function initial() {
             newPriorities[broadcast.user_id] = Math.max(newPriorities[broadcast.user_id] ?? 0, video.end.valueOf());
             if  (performance.now() - lastRender > 500 || firstRender && !vodRequestQueue.hasPendingYields()) {
                 statusSpan.textContent = `Getting video archives (${numChannelLoaded}/${numChannels})...`;
-                layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+                renderTimelines();
                 lastRender = performance.now();
                 firstRender = false;
             }
@@ -774,7 +766,9 @@ async function initial() {
     } finally {}
     statusSpan.textContent = "Rendering...";
 
-    layoutToHTML(layoutSegments(getSegments(allVideos)), followedStreamsPromise);
+    await followedStreamsPromise;
+
+    renderTimelines();
     statusSpan.textContent = "";
 }
 
