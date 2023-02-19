@@ -353,11 +353,11 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
     timelines.innerHTML = '';
     {
         let toLayout = segmentsLayout.slice().reverse();
-        if (!isToday(toLayout[0][0][0].video.start)) {
+        if (!isToday(toLayout[0][0][0].span.start)) {
             timelines.appendChild(makeDayDiv(new Date(), []));
         }
         for (let dayLayout of toLayout) {
-            timelines.appendChild(makeDayDiv(dayLayout[0][0].video.start, dayLayout));
+            timelines.appendChild(makeDayDiv(dayLayout[0][0].span.start, dayLayout));
         }
     }
     (window as any).layout = segmentsLayout;
