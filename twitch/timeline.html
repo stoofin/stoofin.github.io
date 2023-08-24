@@ -123,8 +123,7 @@
 <link id="darkmodecss" disabled rel="stylesheet" href="darkmode.css"/>
 <div id="header-bar">
     <div id="dark-mode-toggle">
-        <input id="dark_mode_checkbox" type="checkbox" onchange="enableDarkMode(this.checked)"/>
-        <label for="dark_mode_checkbox">Dark Mode</label>
+        <input id="dark_mode_checkbox" type="checkbox" onchange="enableDarkMode(this.checked)"/><label for="dark_mode_checkbox">Dark Mode</label>
         <script>
             function enableDarkMode(b) {
                 darkmodecss.toggleAttribute('disabled', !b);
