@@ -727,21 +727,6 @@ class Channel {
 function videosOverlap(a: Video, b: Video): boolean {
     return a.start <= b.end && b.start <= a.end;
 }
-function filterPlaceholders(videos: Video[]) {
-    let toRemove = new Set<Video>();
-    for (let [channel, vs] of groupByValue(videos, v => v.channel)) {
-        for (let v of vs) {
-            if (v.id === STREAM_PLACEHOLDER_ID) {
-                for (let ov of vs) {
-                    if (ov !== v && videosOverlap(ov, v)) {
-                        toRemove.add(v);
-                    }
-                }
-            }
-        }
-    }
-    return videos.filter(v => !toRemove.has(v));
-}
 
 async function getLocalUserId(): Promise<string> {
     let localUserId: string;
