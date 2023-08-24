@@ -1,5 +1,5 @@
 body {
-    background: #1a1a1a;
+    background: #000;
     color: #ddd;
 }
 #srclink {
@@ -9,7 +9,7 @@ body {
     color: #939;
 }
 .now-indicator {
-    background: #1a1a1a;
+    background: #000;
 }
 .stream-link {
     color: #999;
@@ -21,11 +21,11 @@ body {
     color: #eef;
 }
 .timeline-span.placeholder { background: #815757 }
-.timeline {background: #3d3b3e}
-.timeline-span {background: #2f3c66}
+.timeline {background: #212124}
+.timeline-span {box-sizing: border-box; background: #212124; border: 1px solid #5b22e3; border-radius:4px;}
 .channel-timeline:nth-child(odd) .timeline-span.placeholder { background: #815b5b }
-.channel-timeline:nth-child(odd) .timeline {background: #4a484a}
-.channel-timeline:nth-child(odd) .timeline-span {background: #584377}
+.channel-timeline:nth-child(odd) .timeline {background: #2e2e35}
+.channel-timeline:nth-child(odd) .timeline-span {background: #2e2e35; border: 1px solid #9147ff}
 
 .timeline-gridline {
     border-left-color: rgba(0, 0, 0, 0.3);
