@@ -107,53 +107,35 @@
         background: #bb33ff;
     }
     .hidden { display: none; }
+    #header-bar {
+        display: block;
+        text-align: center;
+    }
     #srclink {
-        position: absolute;
-        top: 5px;
-        right: 5px;
+        float: right;
         font-size: 12px;
     }
-
-    @media (prefers-color-scheme: dark) {
-        body {
-            background: #1a1a1a;
-            color: #ddd;
-        }
-        #srclink {
-            color: #35b;
-        }
-        #srclink:visited {
-            color: #939;
-        }
-        .now-indicator {
-            background: #1a1a1a;
-        }
-        .stream-link {
-            color: #999;
-        }
-        .stream-link.live {
-            color: #f66;
-        }
-        .timeline {
-            color: #eef;
-        }
-        .timeline-span.placeholder { background: #815757 }
-        .timeline {background: #3d3b3e}
-        .timeline-span {background: #2f3c66}
-        .channel-timeline:nth-child(odd) .timeline-span.placeholder { background: #815b5b }
-        .channel-timeline:nth-child(odd) .timeline {background: #4a484a}
-        .channel-timeline:nth-child(odd) .timeline-span {background: #584377}
-
-        .timeline-gridline {
-            border-left-color: rgba(0, 0, 0, 0.3);
-        }
-        .timeline-gridline.major {
-            border-left-color: rgba(0, 0, 0, 0.6);
-        }
+    #dark-mode-toggle {
+        float: left;
+        font-size: 12px;
     }
 </style>
-<a id="srclink" href="https://github.com/stoofin/stoofin.github.io/tree/master/twitch">Source</a>
-<center><div id="statusSpan">Waiting for JavaScript</div></center>
+<link id="darkmodecss" disabled rel="stylesheet" href="darkmode.css"/>
+<div id="header-bar">
+    <div id="dark-mode-toggle">
+        <input id="dark_mode_checkbox" type="checkbox" onchange="enableDarkMode(this.checked)"/>
+        <label for="dark_mode_checkbox">Dark Mode</label>
+        <script>
+            function enableDarkMode(b) {
+                darkmodecss.toggleAttribute('disabled', !b);
+            }
+            enableDarkMode(dark_mode_checkbox.checked);
+        </script>
+    </div>
+    <span id="statusSpan">Waiting for JavaScript</span>
+    <a id="srclink" href="https://github.com/stoofin/stoofin.github.io/tree/master/twitch">Source</a>
+    <div style="clear: both"></div>
+</div>
 <center><a id="authlink">Authorize</a></center>
 <div id="timelines"></div>
 <script src="timeline.js"></script>
