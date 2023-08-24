@@ -1,11 +1,10 @@
 declare const authlink: HTMLAnchorElement;
 declare const timelines: HTMLDivElement;
 declare const statusSpan: HTMLSpanElement;
+declare const loadMoreButton: HTMLInputElement;
 
 /*
 TODO:
-    Actually use cursors to load more if desired.
-        (Keep track of whose oldest loaded vod is most recent, and start with them)
     For each channel, show the region prior to that channel's earliest known vod as unknown (white?)
         To make it clear that just because one might exist earlier on another channel doesn't mean there can't be a vod there on the first.
 */
@@ -17,6 +16,22 @@ let here = window.location.href.startsWith("http://localhost") ? "http://localho
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";
 authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=user:read:follows`;
 
+var wantLoadMore: Pending<void>|null = null;
+
+class DefaultMap<K,V> extends Map<K,V> {
+    constructor(private ctor: (k: K) => V) {
+        super();
+    }
+    get(key: K): V {
+        let v = super.get(key);
+        if (v == null) {
+            v = this.ctor(key);
+            this.set(key, v);
+        }
+        return v;
+    }
+}
+
 class Pending<T> {
     promise: Promise<T>;
     resolve: (t: T) => void;
@@ -27,22 +42,53 @@ class Pending<T> {
     }
 }
 
-let channelIcons = new Map<string, Pending<string|null>>();
-function getChannelIcon(channelName: string): Pending<string|null> {
-    let c = channelIcons.get(channelName);
-    if (c == null) {
-        c = new Pending();
-        channelIcons.set(channelName, c);
+function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {
+    let r = new Set<T>();
+    for (let v of a) {
+        if (!b.has(v)) {
+            r.add(v);
+        }
     }
-    return c;
+    return r;
 }
-function registerChannelIcon(channelName: string, url: string|null) {
-    if (url != null) {
-        getChannelIcon(channelName).resolve(url.replace(/\d{2,}x\d{2,}\./, "70x70."));
-    } else {
-        getChannelIcon(channelName).resolve(null);
+function setUnion<T>(a: Set<T>, b: Set<T>): Set<T> {
+    let r = new Set<T>();
+    for (let v of a) {
+        r.add(v);
+    }
+    for (let v of b) {
+        r.add(v);
+    }
+    return r;
+}
+
+class ChannelIcons {
+    seenUserNames = new Set<string>();
+    map = new DefaultMap<string, Pending<string|null>>(name => new Pending());
+    getIcon(channelName: string): Promise<string|null> {
+        return this.map.get(channelName).promise;
+    }
+
+    async requestUserIcons(userNames: Set<string>) {
+        let newUserNames = setDiff(userNames, this.seenUserNames);
+        this.seenUserNames = setUnion(this.seenUserNames, userNames);
+        if (newUserNames.size > 0) {
+            let users = await twitchUsers(Array.from(newUserNames));
+            for (let user of users.data) {
+                this.registerIcon(user.login, user.profile_image_url);
+            }
+        }
+    }
+
+    private registerIcon(channelName: string, url: string|null) {
+        if (url != null) {
+            this.map.get(channelName).resolve(url.replace(/\d{2,}x\d{2,}\./, "70x70."));
+        } else {
+            this.map.get(channelName).resolve(null);
+        }
     }
 }
+let channelIcons = new ChannelIcons();
 
 function eqDay(a: Date, b: Date) {
     return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
@@ -259,7 +305,7 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
             mk('span', {class: "timeline-span-text"}, [text(video.title)])
         ]);
 
-        getChannelIcon(video.channel).promise.then(imgSrc => {
+        channelIcons.getIcon(video.channel).then(imgSrc => {
             if (imgSrc != null) {
                 prependChild(spanDiv, mk("img", {src: imgSrc}));
             }
@@ -433,12 +479,12 @@ interface TwitchVideo {
 
 interface TwitchPaginatedResult<T> {
     data: T[],
-    pagination: { cursor: string }
+    pagination: { cursor?: string }
 }
 
-function twitchGetUserArchiveVideos(userId: string, after_cursor?: string): Promise<TwitchPaginatedResult<TwitchVideo>> {
+function twitchGetUserArchiveVideos(userId: string, count: number = 10, after_cursor?: string): Promise<TwitchPaginatedResult<TwitchVideo>> {
     let pagination = after_cursor != null ? `&after=${after_cursor}` : '';
-    return fetchTwitch(`https://api.twitch.tv/helix/videos?user_id=${userId}&first=10&type=archive${pagination}`);
+    return fetchTwitch(`https://api.twitch.tv/helix/videos?user_id=${userId}&first=${count}&type=archive${pagination}`);
 }
 
 interface Video {
@@ -510,37 +556,6 @@ function getAuthorization() {
         authlink.style.display = '';
     }
     statusSpan.textContent = "";
-}
-function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {
-    let r = new Set<T>();
-    for (let v of a) {
-        if (!b.has(v)) {
-            r.add(v);
-        }
-    }
-    return r;
-}
-function setUnion<T>(a: Set<T>, b: Set<T>): Set<T> {
-    let r = new Set<T>();
-    for (let v of a) {
-        r.add(v);
-    }
-    for (let v of b) {
-        r.add(v);
-    }
-    return r;
-}
-
-let seenUserNames = new Set<string>();
-async function loadUserIcons(userNames: Set<string>) {
-    let newUserNames = setDiff(userNames, seenUserNames);
-    seenUserNames = setUnion(seenUserNames, userNames);
-    if (newUserNames.size > 0) {
-        let users = await twitchUsers(Array.from(newUserNames));
-        for (let user of users.data) {
-            registerChannelIcon(user.login, user.profile_image_url);
-        }
-    }
 }
 
 class PriorityRequest<T> {
@@ -642,33 +657,93 @@ async function testPriorityAsync() {
     console.log("Done!");
 }
 
-async function initial() {
-    // await testPriorityAsync();
+type ChannelState = {
+    state: 'usingCache',
+    videos: Video[],
+} | {
+    state: 'loaded',
+    videos: Video[],
+    paginationCursor: string,
+} | {
+    state: 'exhausted',
+    videos: Video[]
+};
 
-    // return;
+const VOD_REQUEST_COUNT = 10;
+class Channel {
+    state: ChannelState = { state: 'usingCache', videos: [] };
+    livestreamPlaceholder: Video|null = null;
+    requestPending: boolean = false;
+    unwanted: boolean = false;
+    constructor(public id: string) {
 
-    getAuthorization();
-    if (userAccessToken == null) return;
-
-    let followedStreamsPromise: Promise<Map<string, TwitchStream>> = Promise.resolve(new Map());
-    renderTimelines(cachedVideosToVideos(JSON.parse(localStorage.getItem("cachedVideos") ?? "{}")));
-
-    let channelVODTasks = new Map<string, PriorityRequest<TwitchPaginatedResult<TwitchVideo>>>();
-    function makeChannelVODTask(user_id: string, priority: number): PriorityRequest<TwitchPaginatedResult<TwitchVideo>> {
-        let request = {
-            priority: priority,
-            start: () => twitchGetUserArchiveVideos(user_id),
-        };
-        channelVODTasks.set(user_id, request);
-        return request;
     }
 
-    let priorities: {[user_id: string]: number} = JSON.parse(localStorage.getItem('channelPriorities') ?? '{}');
-    let vodRequestQueue = processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, Object.entries(priorities).map(([id, priority]) =>
-        makeChannelVODTask(id, priority)
-    ));
+    addCachedVideo(video: Video) {
+        if (this.state.state === 'usingCache') {
+            this.state.videos.push(video);
+        }
+    }
+    addPlaceholder(video: Video) {
+        this.livestreamPlaceholder = video;
+    }
+    
+    getVideos(): Video[] {
+        if (this.unwanted) return [];
+        let p = this.livestreamPlaceholder;
+        let vs = this.state.videos;
+        if (p != null && !vs.some(v => videosOverlap(v, p!))) {
+            return [p].concat(vs);
+        } else {
+            return vs;
+        }
+    }
 
-    statusSpan.textContent = "Getting user id...";
+    setUnwanted() {
+        this.unwanted = true;
+    }
+
+    couldLoadMore(): boolean {
+        return !this.unwanted && this.state.state !== 'exhausted';
+    }
+
+    async requestMoreVODs() {
+        if (this.requestPending) throw "Request already pending";
+        if (this.state.state === 'exhausted' || this.unwanted) return;
+        this.requestPending = true;
+        let cursor = this.state.state === 'loaded' ? this.state.paginationCursor : undefined;
+        let vods = await twitchGetUserArchiveVideos(this.id, VOD_REQUEST_COUNT, cursor);
+        let oldVideos = this.state.state === 'usingCache' ? [] : this.state.videos;
+        let newVideos = oldVideos.concat(vods.data.map(b => twitchBroadcastToVideo(b)));
+        if (vods.pagination.cursor != null && vods.data.length === VOD_REQUEST_COUNT) {
+            this.state = { state: 'loaded', videos: newVideos, paginationCursor: vods.pagination.cursor };
+        } else {
+            this.state = { state: 'exhausted', videos: newVideos };
+        }
+        this.requestPending = false;
+    }
+}
+
+function videosOverlap(a: Video, b: Video): boolean {
+    return a.start <= b.end && b.start <= a.end;
+}
+function filterPlaceholders(videos: Video[]) {
+    let toRemove = new Set<Video>();
+    for (let [channel, vs] of groupByValue(videos, v => v.channel)) {
+        for (let v of vs) {
+            if (v.id === STREAM_PLACEHOLDER_ID) {
+                for (let ov of vs) {
+                    if (ov !== v && videosOverlap(ov, v)) {
+                        toRemove.add(v);
+                    }
+                }
+            }
+        }
+    }
+    return videos.filter(v => !toRemove.has(v));
+}
+
+async function getLocalUserId(): Promise<string> {
     let localUserId: string;
     let storedUserId = localStorage.getItem('UserId');
     if (storedUserId == null) {
@@ -677,35 +752,68 @@ async function initial() {
     } else {
         localUserId = storedUserId;
     }
+    return localUserId;
+}
 
-    async function liveStreams(): Promise<Map<string, TwitchStream>> {
-        let m = new Map<string, TwitchStream>();
-        let streams = await twitchGetFollowedStreams(localUserId);
-        for (let stream of streams.data) {
-            m.set(stream.user_id, stream);
-        }
-        return m;
+async function initial() {
+    getAuthorization();
+    if (userAccessToken == null) return;
+
+    let channels = new DefaultMap<string, Channel>(id => new Channel(id));
+
+    let followedStreamsPromise: Promise<Map<string, TwitchStream>> = Promise.resolve(new Map());
+    let cachedVideos = cachedVideosToVideos(JSON.parse(localStorage.getItem("cachedVideos") ?? "{}"));
+    for (let video of cachedVideos) {
+        channels.get(video.user_id).addCachedVideo(video);
     }
-    followedStreamsPromise = liveStreams();
+    renderTimelines();
+
+    let channelVODTasks = new Map<string, PriorityRequest<void>>();
+    function makeChannelVODTask(user_id: string, priority: number): PriorityRequest<void> {
+        let request = {
+            priority: priority,
+            start: () => channels.get(user_id).requestMoreVODs(),
+        };
+        channelVODTasks.set(user_id, request);
+        return request;
+    }
+
+    // Populate priorities from cached videos
+    let priorities: {[user_id: string]: number} = {};
+    for (let video of getAllVideos()) {
+        priorities[video.user_id] = Math.max(priorities[video.user_id] ?? 0, video.end.valueOf());
+    }
+
+    let vodRequestQueue = processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, Object.entries(priorities).map(([id, priority]) =>
+        makeChannelVODTask(id, priority)
+    ));
+
+    statusSpan.textContent = "Getting user id...";
+    let localUserId = await getLocalUserId();
+
+    // Don't need to await this right away
+    followedStreamsPromise = (async function(): Promise<Map<string, TwitchStream>> {
+        let streams = await twitchGetFollowedStreams(localUserId);
+        return new Map(streams.data.map(stream => [stream.user_id, stream]));
+    })();
 
     statusSpan.textContent = "Getting follows...";
     let follows = await twitchGetFollows(localUserId);
 
     // Don't need to wait for this operation
-    loadUserIcons(new Set(follows.data.map(follow => follow.to_name)));
+    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.to_name)));
 
-    let numChannels = follows.data.length;
-    let numChannelLoaded = 0;
-    statusSpan.textContent = `Getting video archives (0/${numChannels})...`;
-
-    let firstRender = true;
-    let lastRender = performance.now();
-    let allVideos: Video[] = [];
+    // Flag channels that are no longer followed
     let actuallyInterestedIn = new Set(follows.data.map(follow => follow.to_id));
-    let videoRequestTasks = follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow =>
-        makeChannelVODTask(follow.to_id, priorities[follow.to_id] ?? 0)
-    );
-    vodRequestQueue.addTasks(videoRequestTasks);
+    for (let id of channels.keys()) {
+        if (!actuallyInterestedIn.has(id)) {
+            channels.get(id).setUnwanted();
+        }
+    }
+
+    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow =>
+        makeChannelVODTask(follow.to_id, 0)
+    ));
     
     followedStreamsPromise.then(followedStreams => {
         // Bump up priority of live streams
@@ -718,7 +826,7 @@ async function initial() {
 
         // Insert placeholder entries for live streams (will be hidden if it overlaps with a VOD)
         for (let s of followedStreams.values()) {
-            allVideos.push({
+            channels.get(s.user_id).addPlaceholder({
                 channel: s.user_login,
                 start: new Date(s.started_at),
                 end: new Date(),
@@ -731,68 +839,71 @@ async function initial() {
         }
     });
 
-    function videosOverlap(a: Video, b: Video): boolean {
-        return a.start <= b.end && b.start <= a.end;
-    }
-    function filterPlaceholders(videos: Video[]) {
-        let toRemove = new Set<Video>();
-        for (let [channel, vs] of groupByValue(videos, v => v.channel)) {
-            for (let v of vs) {
-                if (v.id === STREAM_PLACEHOLDER_ID) {
-                    for (let ov of vs) {
-                        if (ov !== v && videosOverlap(ov, v)) {
-                            toRemove.add(v);
-                        }
-                    }
-                }
-            }
-        }
-        return videos.filter(v => !toRemove.has(v));
+    function getAllVideos() {
+        return Array.from(channels.values()).flatMap(channel => channel.getVideos());
     }
 
-    function renderTimelines(videos: Video[]) {
-        let filteredVideos = filterPlaceholders(videos);
-        let allSegments = getSegments(filteredVideos);
+    function renderTimelines() {
+        let allSegments = getSegments(getAllVideos());
         layoutToHTML(layoutSegments(allSegments), followedStreamsPromise);
     }
 
-    outer: for await (let vids of vodRequestQueue) {
-        numChannelLoaded += 1;
-        for (let broadcast of vids.data) {
-            if (!actuallyInterestedIn.has(broadcast.user_id)) {
-                continue outer;
-            }
-            let video = twitchBroadcastToVideo(broadcast);
-            allVideos.push(video);
-            if  (performance.now() - lastRender > 500 || firstRender && !vodRequestQueue.hasPendingYields()) {
+    async function processRequestQueue(numChannels: number, queue: typeof vodRequestQueue) {
+        let numChannelLoaded = 0;
+        statusSpan.textContent = `Getting video archives (0/${numChannels})...`;
+    
+        let firstRender = true;
+        let lastRender = performance.now();
+        for await (let _ of queue) {
+            numChannelLoaded += 1;
+            if  (performance.now() - lastRender > 500 || firstRender && !queue.hasPendingYields()) {
                 statusSpan.textContent = `Getting video archives (${numChannelLoaded}/${numChannels})...`;
-                renderTimelines(allVideos);
+                renderTimelines();
                 lastRender = performance.now();
                 firstRender = false;
             }
         }
+        statusSpan.textContent = "Rendering...";
     }
-    try {
-        let newPriorities: {[user_id: string]: number} = {};
-        for (let video of allVideos) {
-            newPriorities[video.user_id] = Math.max(newPriorities[video.user_id] ?? 0, video.end.valueOf());
-        }
-        localStorage.setItem('channelPriorities', JSON.stringify(newPriorities));
-    } finally {}
-    statusSpan.textContent = "Rendering...";
+
+    await processRequestQueue(follows.data.length, vodRequestQueue);
 
     await followedStreamsPromise;
 
-    renderTimelines(allVideos);
-    statusSpan.textContent = "";
-
-    let cachedStr = JSON.stringify(videosToCachedVideos(allVideos));
+    let cachedStr = JSON.stringify(videosToCachedVideos(getAllVideos()));
     if (cachedStr.length > 2e6) {
         cachedStr = '{}';
     }
     try {
         localStorage.setItem('cachedVideos', cachedStr);
     } finally {}
+
+    (window as any).channels = channels;
+
+    while (true) {
+        renderTimelines();
+        statusSpan.textContent = "";
+
+        wantLoadMore = new Pending();
+        loadMoreButton.style.display = "";
+        await wantLoadMore.promise;
+        wantLoadMore = null;
+        loadMoreButton.style.display = "none";
+
+        let tasks = Array.from(channels.values()).filter(channel => channel.couldLoadMore()).map(channel => ({
+            priority: 0,
+            start: () => channel.requestMoreVODs(),
+        }));
+        if (tasks.length === 0) break;
+        console.log(`Loading more videos from ${tasks.length} channels.`);
+        await processRequestQueue(tasks.length, processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, tasks));
+    }
+}
+
+function LoadMore() {
+    if (wantLoadMore != null) {
+        wantLoadMore.resolve();
+    }
 }
 
 interface CachedVideos {
