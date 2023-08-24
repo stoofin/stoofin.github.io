@@ -884,17 +884,18 @@ async function initial() {
         renderTimelines();
         statusSpan.textContent = "";
 
+        let tasks = Array.from(channels.values()).filter(channel => channel.couldLoadMore()).map(channel => ({
+            priority: 0,
+            start: () => channel.requestMoreVODs(),
+        }));
+        if (tasks.length === 0) break;
+
         wantLoadMore = new Pending();
         loadMoreButton.style.display = "";
         await wantLoadMore.promise;
         wantLoadMore = null;
         loadMoreButton.style.display = "none";
 
-        let tasks = Array.from(channels.values()).filter(channel => channel.couldLoadMore()).map(channel => ({
-            priority: 0,
-            start: () => channel.requestMoreVODs(),
-        }));
-        if (tasks.length === 0) break;
         console.log(`Loading more videos from ${tasks.length} channels.`);
         await processRequestQueue(tasks.length, processConcurrentTasks(CONCURRENT_ARCHIVE_REQUESTS, tasks));
     }
