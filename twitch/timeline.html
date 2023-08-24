@@ -125,9 +125,14 @@
     <div id="dark-mode-toggle">
         <input id="dark_mode_checkbox" type="checkbox" onchange="enableDarkMode(this.checked)"/><label for="dark_mode_checkbox">Dark Mode</label>
         <script>
+            if (localStorage.darkMode == null) {
+                localStorage.darkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+            }
             function enableDarkMode(b) {
                 darkmodecss.toggleAttribute('disabled', !b);
+                localStorage.darkMode = b;
             }
+            dark_mode_checkbox.checked = localStorage.darkMode === "true";
             enableDarkMode(dark_mode_checkbox.checked);
         </script>
     </div>
