@@ -3,10 +3,10 @@ body {
     color: #ddd;
 }
 #srclink {
-    color: #35b;
+    color: #47d;
 }
 #srclink:visited {
-    color: #939;
+    color: #b39;
 }
 .now-indicator {
     background: #000;
@@ -15,17 +15,18 @@ body {
     color: #999;
 }
 .stream-link.live {
-    color: #f66;
+    color: #f02;
+    font-weight: bold;
 }
 .timeline {
     color: #eef;
 }
-.timeline-span.placeholder { background: #815757 }
+.timeline-span.placeholder { background: inherit; border: 1px solid #e03; }
 .timeline {background: #212124}
-.timeline-span {box-sizing: border-box; background: #212124; border: 1px solid #5b22e3; border-radius:4px;}
-.channel-timeline:nth-child(odd) .timeline-span.placeholder { background: #815b5b }
+.timeline-span {box-sizing: border-box; background: inherit; border: 1px solid #5b22e3; border-radius:4px;}
+.channel-timeline:nth-child(odd) .timeline-span.placeholder { background: inherit; border: 1px solid #f00; }
 .channel-timeline:nth-child(odd) .timeline {background: #2e2e35}
-.channel-timeline:nth-child(odd) .timeline-span {background: #2e2e35; border: 1px solid #9147ff}
+.channel-timeline:nth-child(odd) .timeline-span {background: inherit; border: 1px solid #9147ff}
 
 .timeline-gridline {
     border-left-color: rgba(0, 0, 0, 0.3);
