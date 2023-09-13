@@ -373,7 +373,7 @@ function twitchGetFollowedStreams(userId) {
     return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
 }
 function twitchGetFollows(fromId) {
-    return fetchTwitch(`https://api.twitch.tv/helix/users/follows?from_id=${fromId}&first=100`);
+    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100`);
 }
 function twitchGetUserArchiveVideos(userId, count = 10, after_cursor) {
     let pagination = after_cursor != null ? `&after=${after_cursor}` : '';
@@ -632,15 +632,15 @@ async function initial() {
     statusSpan.textContent = "Getting follows...";
     let follows = await twitchGetFollows(localUserId);
     // Don't need to wait for this operation
-    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.to_name)));
+    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.broadcaster_login)));
     // Flag channels that are no longer followed
-    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.to_id));
+    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.broadcaster_id));
     for (let id of channels.keys()) {
         if (!actuallyInterestedIn.has(id)) {
             channels.get(id).setUnwanted();
         }
     }
-    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow => makeChannelVODTask(follow.to_id, 0)));
+    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.broadcaster_id)).map(follow => makeChannelVODTask(follow.broadcaster_id, 0)));
     followedStreamsPromise.then(followedStreams => {
         // Bump up priority of live streams
         for (let fs of followedStreams.values()) {
@@ -716,9 +716,7 @@ async function initial() {
     }
 }
 function LoadMore() {
-    if (wantLoadMore != null) {
-        wantLoadMore.resolve();
-    }
+    wantLoadMore?.resolve();
 }
 function videosToCachedVideos(videos) {
     let cached = {};

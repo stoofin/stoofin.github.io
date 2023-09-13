@@ -440,16 +440,14 @@ function twitchGetFollowedStreams(userId: string): Promise<{ data: TwitchStream[
 }
 
 interface TwitchFollow {
-    "from_id": string, // "171003792",
-    "from_login": string, // "iiisutha067iii",
-    "from_name": string, // "IIIsutha067III",
-    "to_id": string, // "23161357",
-    "to_name": string, // "LIRIK",
-    "followed_at": string // "2017-08-22T22:55:24Z"
+    "broadcaster_id": string, // "654321",
+    "broadcaster_login": string, // "basketweaver101",
+    "broadcaster_name": string, // "BasketWeaver101",
+    "followed_at": string, // "2022-05-24T22:22:08Z",
 }
 
 function twitchGetFollows(fromId: string): Promise<TwitchPaginatedResult<TwitchFollow>> {
-    return fetchTwitch(`https://api.twitch.tv/helix/users/follows?from_id=${fromId}&first=100`);
+    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100`);
 }
 
 interface TwitchVideo {
@@ -786,18 +784,18 @@ async function initial() {
     let follows = await twitchGetFollows(localUserId);
 
     // Don't need to wait for this operation
-    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.to_name)));
+    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.broadcaster_login)));
 
     // Flag channels that are no longer followed
-    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.to_id));
+    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.broadcaster_id));
     for (let id of channels.keys()) {
         if (!actuallyInterestedIn.has(id)) {
             channels.get(id).setUnwanted();
         }
     }
 
-    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.to_id)).map(follow =>
-        makeChannelVODTask(follow.to_id, 0)
+    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.broadcaster_id)).map(follow =>
+        makeChannelVODTask(follow.broadcaster_id, 0)
     ));
     
     followedStreamsPromise.then(followedStreams => {
@@ -887,9 +885,7 @@ async function initial() {
 }
 
 function LoadMore() {
-    if (wantLoadMore != null) {
-        wantLoadMore.resolve();
-    }
+    wantLoadMore?.resolve();
 }
 
 interface CachedVideos {
