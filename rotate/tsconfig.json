@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "sourceMap": true,
+        "target": "esnext",
+        "strictNullChecks": true,
+        "noImplicitThis": true,
+        "noImplicitAny": true
+    }
+}
