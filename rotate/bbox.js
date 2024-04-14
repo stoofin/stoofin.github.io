@@ -28,6 +28,9 @@ class Point2D {
     length() {
         return Math.sqrt(this.x * this.x + this.y * this.y);
     }
+    lengthSq() {
+        return this.dot(this);
+    }
     div(scalar) {
         return new Point2D(this.x / scalar, this.y / scalar);
     }

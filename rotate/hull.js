@@ -3,18 +3,23 @@ function grahamScan(points) {
     if (points.length <= 3)
         return points;
     let pivotIndex = 0;
-    let pivotY = points[pivotIndex].y;
+    let pivot = points[pivotIndex];
     for (let i = 1; i < points.length; i++) {
-        if (points[i].y > pivotY) {
+        if (points[i].y < pivot.y || (points[i].y === pivot.y && points[i].x < pivot.x)) {
             pivotIndex = i;
-            pivotY = points[i].y;
+            pivot = points[i];
         }
     }
-    let pivot = points[pivotIndex];
     points[pivotIndex] = points[points.length - 1];
     points.pop();
     let pointsWithAngles = points.map(p => ({ p, angle: Math.atan2(p.y - pivot.y, p.x - pivot.x) }));
-    pointsWithAngles.sort((a, b) => a.angle - b.angle);
+    pointsWithAngles.sort((a, b) => {
+        let r = a.angle - b.angle;
+        if (r === 0) {
+            r = a.p.sub(pivot).lengthSq() - b.p.sub(pivot).lengthSq();
+        }
+        return r;
+    });
     function ccw(a, b, c) {
         return b.sub(a).crossZ(c.sub(b));
     }
