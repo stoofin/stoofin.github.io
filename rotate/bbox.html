@@ -17,6 +17,7 @@
     <input value="Draw [b]" id="draw_button" type="button" onclick="setMode('draw')"/>
     <input value="Transform [t]" id="transform_button" type="button" onclick="setMode('transform')"/>
     <input value="Clear [Del]" type="button" onclick="clearCanvas()"/>
+    <input id="best_fit_checkbox" type="checkbox" onclick="if (this.checked) updateToBestFit()"/> Best Fit
 </div>
 <canvas id="canvas">
 </canvas>

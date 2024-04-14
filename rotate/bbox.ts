@@ -1,6 +1,7 @@
 declare var canvas: HTMLCanvasElement;
 declare var draw_button: HTMLInputElement;
 declare var transform_button: HTMLInputElement;
+declare var best_fit_checkbox: HTMLInputElement;
 let ctx = canvas.getContext('2d')!;
 if (ctx == null) console.error("Couldn't get 2d rendering context");
 
@@ -402,6 +403,9 @@ let transformMode = new class TransformMode {
         this.canvasToCageTransform = Mat3x2.rotation(this.cageRotation);
         this.cageToCanvasTransform = this.canvasToCageTransform.inverse();
     }
+    setCageRotationToBestFit() {
+        this.setCageRotation(-this.bestFitAngle());
+    }
 
     entermode() {
         transform_button.classList.add("active");
@@ -419,7 +423,11 @@ let transformMode = new class TransformMode {
         } else {
             this.supportMap = null;
         }
-        this.setCageRotation(-this.bestFitAngle());
+        if (best_fit_checkbox.checked) {
+            this.setCageRotationToBestFit();
+        } else {
+            this.setCageRotation(0);
+        }
 
         this.tmpCanvas.width = this.imageData.width;
         this.tmpCanvas.height = this.imageData.height;
@@ -698,6 +706,13 @@ function clearCanvas() {
     canvas.width = canvas.width;
     currentMode = drawMode;
     currentMode.entermode();
+}
+function updateToBestFit() {
+    if (currentMode === transformMode) {
+        transformMode.setCageRotationToBestFit();
+        transformMode.updateCageBounds();
+        transformMode.draw();
+    }
 }
 
 currentMode.entermode();

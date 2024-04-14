@@ -356,6 +356,9 @@ let transformMode = new class TransformMode {
         this.canvasToCageTransform = Mat3x2.rotation(this.cageRotation);
         this.cageToCanvasTransform = this.canvasToCageTransform.inverse();
     }
+    setCageRotationToBestFit() {
+        this.setCageRotation(-this.bestFitAngle());
+    }
     entermode() {
         transform_button.classList.add("active");
         this.imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -368,7 +371,12 @@ let transformMode = new class TransformMode {
         else {
             this.supportMap = null;
         }
-        this.setCageRotation(-this.bestFitAngle());
+        if (best_fit_checkbox.checked) {
+            this.setCageRotationToBestFit();
+        }
+        else {
+            this.setCageRotation(0);
+        }
         this.tmpCanvas.width = this.imageData.width;
         this.tmpCanvas.height = this.imageData.height;
         this.tmpCtx.putImageData(this.imageData, 0, 0);
@@ -638,6 +646,13 @@ function clearCanvas() {
     canvas.width = canvas.width;
     currentMode = drawMode;
     currentMode.entermode();
+}
+function updateToBestFit() {
+    if (currentMode === transformMode) {
+        transformMode.setCageRotationToBestFit();
+        transformMode.updateCageBounds();
+        transformMode.draw();
+    }
 }
 currentMode.entermode();
 let lastTime = performance.now();
