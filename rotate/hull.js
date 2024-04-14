@@ -3,36 +3,41 @@ function imageDataToPoints(imgData) {
     const w = imgData.width;
     const h = imgData.height;
     let hullBuilder = new ConvexHullGrahamScan();
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            if (d[(y * w + x) * 4 + 3] > 0) {
-                hullBuilder.addPoint(x, y);
-                break;
-            }
-        }
-        for (let x = w - 1; x >= 0; x--) {
-            if (d[(y * w + x) * 4 + 3] > 0) {
-                hullBuilder.addPoint(x, y);
-                break;
-            }
-        }
-    }
-    for (let x = 0; x < w; x++) {
+    if (h < w) {
         for (let y = 0; y < h; y++) {
-            if (d[(y * w + x) * 4 + 3] > 0) {
-                hullBuilder.addPoint(x, y);
-                break;
+            for (let x = 0; x < w; x++) {
+                if (d[(y * w + x) * 4 + 3] > 0) {
+                    hullBuilder.addPoint(x, y);
+                    break;
+                }
             }
-        }
-        for (let y = h - 1; y >= 0; y--) {
-            if (d[(y * w + x) * 4 + 3] > 0) {
-                hullBuilder.addPoint(x, y);
-                break;
+            for (let x = w - 1; x >= 0; x--) {
+                if (d[(y * w + x) * 4 + 3] > 0) {
+                    hullBuilder.addPoint(x, y);
+                    break;
+                }
             }
         }
     }
+    else {
+        for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+                if (d[(y * w + x) * 4 + 3] > 0) {
+                    hullBuilder.addPoint(x, y);
+                    break;
+                }
+            }
+            for (let y = h - 1; y >= 0; y--) {
+                if (d[(y * w + x) * 4 + 3] > 0) {
+                    hullBuilder.addPoint(x, y);
+                    break;
+                }
+            }
+        }
+    }
+    let pointsAdded = hullBuilder.points.length;
     let hull = hullBuilder.getHull();
-    console.info({ numPixels: w * h, maxAdded: (w + h) * 2, hull: hull.length });
+    console.info({ numPixels: w * h, pointsAdded, hull: hull.length });
     // If no points were added graham_scan returns [undefined]
     if (hull[0] == undefined) {
         return [];
