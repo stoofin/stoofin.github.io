@@ -211,6 +211,33 @@ let transformMode = new class TransformMode {
         ctx.lineWidth = 1;
         ctx.stroke(handle.path);
     }
+    bestFitAngle() {
+        if (this.supportMap == null)
+            return 0.0;
+        // Minimize bounding box area by brute force checking every 1 degree
+        // But ideally use something smart like: https://en.wikipedia.org/wiki/Minimum_bounding_box_algorithms
+        let scoreFn;
+        let scoreByMinArea = bounds => -(bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y);
+        let scoreByLongestAxis = bounds => Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
+        scoreFn = scoreByMinArea;
+        let bestScore = -Infinity;
+        let bestAngle = 0.0;
+        for (let angle = 0.0; angle < Math.PI / 2.0; angle += Math.PI / 180.0) {
+            let axisA = new Point2D(Math.cos(angle), Math.sin(angle));
+            let axisB = new Point2D(-axisA.y, axisA.x);
+            let toPoint = ({ x, y }) => new Point2D(x, y);
+            let aMax = toPoint(this.supportMap.get(axisA)).dot(axisA);
+            let aMin = toPoint(this.supportMap.get(axisA.div(-1))).dot(axisA);
+            let bMax = toPoint(this.supportMap.get(axisB)).dot(axisB);
+            let bMin = toPoint(this.supportMap.get(axisB.div(-1))).dot(axisB);
+            let score = scoreFn({ min: new Point2D(aMin, bMin), max: new Point2D(aMax, bMax) });
+            if (score > bestScore) {
+                bestScore = score;
+                bestAngle = angle;
+            }
+        }
+        return bestAngle;
+    }
     computeBounds(transform) {
         if (this.supportMap == null)
             return null;
@@ -334,7 +361,14 @@ let transformMode = new class TransformMode {
         this.imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         this.transform = new ToolTransform();
         this.setCageRotation(0);
-        this.supportMap = SupportMap.fromNonTransparentPixels(this.imageData);
+        let pixels = SupportMapPoints.fromNonTransparentPixels(this.imageData);
+        if (pixels != null) {
+            this.supportMap = new SupportMapSum(pixels, new SupportMapPoints([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }]));
+        }
+        else {
+            this.supportMap = null;
+        }
+        this.setCageRotation(-this.bestFitAngle());
         this.tmpCanvas.width = this.imageData.width;
         this.tmpCanvas.height = this.imageData.height;
         this.tmpCtx.putImageData(this.imageData, 0, 0);

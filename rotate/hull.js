@@ -1,42 +1,46 @@
 function imageDataToPoints(imgData) {
     let d = imgData.data;
-    let present = (x, y) => {
-        if (x >= 0 && x < imgData.width && y >= 0 && y < imgData.height) {
-            return d[(y * imgData.width + x) * 4 + 3] > 0;
-        }
-        return false;
-    };
+    const w = imgData.width;
+    const h = imgData.height;
     let hullBuilder = new ConvexHullGrahamScan();
-    let presentPixels = 0;
-    let addedPixels = 0;
-    for (let y = 0; y < imgData.height; y++) {
-        pixel: for (let x = 0; x < imgData.width; x++) {
-            if (present(x, y)) {
-                presentPixels += 1;
-                // Cull presentPixels that even locally can't contribute to the convex hull
-                let left = false, right = false, above = false, below = false;
-                for (let i = -1; i <= 1; i++) {
-                    above ||= present(x + i, y - 1);
-                    below ||= present(x + i, y + 1);
-                    left ||= present(x - 1, y + i);
-                    right ||= present(x + 1, y + i);
-                }
-                if (above && below && left && right) {
-                    // Exclude
-                }
-                else {
-                    addedPixels += 1;
-                    hullBuilder.addPoint(x, y);
-                }
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            if (d[(y * w + x) * 4 + 3] > 0) {
+                hullBuilder.addPoint(x, y);
+                break;
+            }
+        }
+        for (let x = w - 1; x >= 0; x--) {
+            if (d[(y * w + x) * 4 + 3] > 0) {
+                hullBuilder.addPoint(x, y);
+                break;
+            }
+        }
+    }
+    for (let x = 0; x < w; x++) {
+        for (let y = 0; y < h; y++) {
+            if (d[(y * w + x) * 4 + 3] > 0) {
+                hullBuilder.addPoint(x, y);
+                break;
+            }
+        }
+        for (let y = h - 1; y >= 0; y--) {
+            if (d[(y * w + x) * 4 + 3] > 0) {
+                hullBuilder.addPoint(x, y);
+                break;
             }
         }
     }
     let hull = hullBuilder.getHull();
-    console.info({ numPixels: imgData.width * imgData.height, presentPixels, points: addedPixels, hull: hull.length });
-    // getHull returns [undefined] if no points are added.
-    return addedPixels > 0 ? hull : [];
+    console.info({ numPixels: w * h, maxAdded: (w + h) * 2, hull: hull.length });
+    // If no points were added graham_scan returns [undefined]
+    if (hull[0] == undefined) {
+        return [];
+    }
+    // Even a single point is valid, since the support map for a pixel will be added on
+    return hull;
 }
-class SupportMap {
+class SupportMapPoints {
     pts;
     constructor(pts) {
         this.pts = pts;
@@ -59,11 +63,24 @@ class SupportMap {
     static fromNonTransparentPixels(imgData) {
         let pts = imageDataToPoints(imgData);
         if (pts.length > 0) {
-            return new SupportMap(pts);
+            return new SupportMapPoints(pts);
         }
         else {
             return null;
         }
+    }
+}
+class SupportMapSum {
+    a;
+    b;
+    constructor(a, b) {
+        this.a = a;
+        this.b = b;
+    }
+    get(dir) {
+        let pa = this.a.get(dir);
+        let pb = this.b.get(dir);
+        return { x: pa.x + pb.x, y: pa.y + pb.y };
     }
 }
 //# sourceMappingURL=hull.js.map
