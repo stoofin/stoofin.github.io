@@ -40,6 +40,9 @@ class Point2D {
     dot(other: Point2D) {
         return this.x * other.x + this.y * other.y;
     }
+    crossZ(other: Point2D) {
+        return this.x * other.y - other.x * this.y;
+    }
     clone() {
         return new Point2D(this.x, this.y);
     }

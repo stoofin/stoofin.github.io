@@ -1,29 +1,55 @@
-// https://github.com/brian3kb/graham_scan_js
-declare var ConvexHullGrahamScan: {
-    new(): {
-        addPoint(x: number, y: number): void;
-        getHull(): {x: number, y: number}[];
+function grahamScan(points: Point2D[]) {
+    // https://en.wikipedia.org/wiki/Graham_scan
+    if (points.length <= 3) return points;
+    let pivotIndex = 0;
+    let pivotY = points[pivotIndex].y;
+    for (let i = 1; i < points.length; i++) {
+        if (points[i].y > pivotY) {
+            pivotIndex = i;
+            pivotY = points[i].y;
+        }
     }
-};
+    let pivot = points[pivotIndex];
+    points[pivotIndex] = points[points.length - 1];
+    points.pop();
+
+    let pointsWithAngles = points.map(p => ({ p, angle: Math.atan2(p.y - pivot.y, p.x - pivot.x)}));
+
+    pointsWithAngles.sort((a, b) => a.angle - b.angle);
+
+    function ccw(a: Point2D, b: Point2D, c: Point2D) {
+        return b.sub(a).crossZ(c.sub(b));
+    }
+    
+    let hull = [pivot];
+    for (let {p} of pointsWithAngles) {
+        while (hull.length > 1 && ccw(hull[hull.length - 2], hull[hull.length - 1], p) <= 0.0) {
+            hull.pop();
+        }
+        hull.push(p);
+    }
+
+    return hull;
+}
 
 function imageDataToPoints(imgData: ImageData) {
     let d = imgData.data;
     const w = imgData.width;
     const h = imgData.height;
 
-    let hullBuilder = new ConvexHullGrahamScan();
+    let points = [];
 
     if (h < w) {
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 if (d[(y * w + x) * 4 + 3] > 0) {
-                    hullBuilder.addPoint(x, y);
+                    points.push(new Point2D(x, y));
                     break;
                 }
             }
             for (let x = w - 1; x >= 0; x--) {
                 if (d[(y * w + x) * 4 + 3] > 0) {
-                    hullBuilder.addPoint(x, y);
+                    points.push(new Point2D(x, y));
                     break;
                 }
             }
@@ -32,28 +58,24 @@ function imageDataToPoints(imgData: ImageData) {
         for (let x = 0; x < w; x++) {
             for (let y = 0; y < h; y++) {
                 if (d[(y * w + x) * 4 + 3] > 0) {
-                    hullBuilder.addPoint(x, y);
+                    points.push(new Point2D(x, y));
                     break;
                 }
             }
             for (let y = h - 1; y >= 0; y--) {
                 if (d[(y * w + x) * 4 + 3] > 0) {
-                    hullBuilder.addPoint(x, y);
+                    points.push(new Point2D(x, y));
                     break;
                 }
             }
         }
     }
 
-    let pointsAdded = (hullBuilder as any).points.length;
-    let hull = hullBuilder.getHull();
+    let numPoints = points.length;
+    let hull = grahamScan(points);
 
-    console.info({numPixels: w * h, pointsAdded, hull: hull.length});
+    console.info({numPixels: w * h, numPoints, hull: hull.length});
 
-    // If no points were added graham_scan returns [undefined]
-    if (hull[0] == undefined) {
-        return [];
-    }
     // Even a single point is valid, since the support map for a pixel will be added on
     return hull;
 }
