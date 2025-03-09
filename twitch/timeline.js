@@ -103,6 +103,9 @@ function firstSecondOfDay(d) {
 function lastSecondOfDay(d) {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, -1);
 }
+function hoursInDay(d) {
+    return Math.round((lastSecondOfDay(d).getTime() - firstSecondOfDay(d).getTime()) / 1000 / 3600);
+}
 function splitIntoDaySegments(start, end) {
     var spans = [];
     // Only one span
@@ -233,12 +236,12 @@ function layoutToHTML(segmentsLayout, liveStreams) {
             ", " + date.getFullYear();
         // return date.toDateString();
     }
-    function makeGridLines() {
+    function makeGridLines(hours) {
         let r = [];
-        for (let i = 1; i < 24; i++) {
+        for (let i = 1; i < hours; i++) {
             r.push(mk('div', {
-                class: `timeline-gridline ${i % 6 === 0 ? "major" : ""}`,
-                style: `left: ${(i / 24 * 100)}%`,
+                class: `timeline-gridline ${(hours - i) % 6 === 0 ? "major" : ""}`,
+                style: `left: ${(i / hours * 100)}%`,
             }));
         }
         return r;
@@ -312,7 +315,7 @@ function layoutToHTML(segmentsLayout, liveStreams) {
         return mk('div', { class: "channel-timeline" }, [
             mk('div', { class: "channel-name" }, [text(channelName)]),
             mk('div', { class: "timeline" }, flatten([
-                makeGridLines(),
+                makeGridLines(hoursInDay(channel[0].span.start)),
                 eqDay(channel[0].span.start, new Date()) ? [makeNowDiv(channelName, channelId)] : [],
                 channel.map(segment => makeSegmentDiv(segment))
             ]))
