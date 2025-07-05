@@ -396,7 +396,7 @@ async function fetchTwitch(url: string) {
         if (resetTimeUnix != null) {
             // This branch will only be taken once the headers are made available over CORS:
             // https://twitch.uservoice.com/forums/310213-developers/suggestions/44104659-make-rate-limit-headers-available-to-cors-client
-            
+
             // Wait until 1 second after the reset time
             waitForMillis = 1_000 + parseInt(resetTimeUnix) * 1_000 - (new Date()).valueOf();
         }
@@ -415,7 +415,7 @@ function* chunks<T>(ts: T[], chunkSize: number): IterableIterator<T[]> {
 
 async function twitchGetAllByLogin<T>(api: (userNames: string[]) => Promise<{ data: T[] }>, allUserNames: string[]): Promise<{ data: T[] }> {
     let requests = Array
-        .from(chunks(allUserNames, 10))
+        .from(chunks(allUserNames, 100))
         .map(userNames => api(userNames));
     let results = await Promise.all(requests);
     return { data: results.flatMap(r => r.data) };

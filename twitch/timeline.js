@@ -377,7 +377,7 @@ function* chunks(ts, chunkSize) {
 }
 async function twitchGetAllByLogin(api, allUserNames) {
     let requests = Array
-        .from(chunks(allUserNames, 10))
+        .from(chunks(allUserNames, 100))
         .map(userNames => api(userNames));
     let results = await Promise.all(requests);
     return { data: results.flatMap(r => r.data) };
