@@ -42,26 +42,6 @@ class Pending<T> {
     }
 }
 
-function setDiff<T>(a: Set<T>, b: Set<T>): Set<T> {
-    let r = new Set<T>();
-    for (let v of a) {
-        if (!b.has(v)) {
-            r.add(v);
-        }
-    }
-    return r;
-}
-function setUnion<T>(a: Set<T>, b: Set<T>): Set<T> {
-    let r = new Set<T>();
-    for (let v of a) {
-        r.add(v);
-    }
-    for (let v of b) {
-        r.add(v);
-    }
-    return r;
-}
-
 class ChannelIcons {
     seenUserNames = new Set<string>();
     map = new DefaultMap<string, Pending<string|null>>(name => new Pending());
@@ -70,13 +50,18 @@ class ChannelIcons {
     }
 
     async requestUserIcons(userNames: Set<string>) {
-        let newUserNames = setDiff(userNames, this.seenUserNames);
-        this.seenUserNames = setUnion(this.seenUserNames, userNames);
+        let newUserNames = userNames.difference(this.seenUserNames);
+        this.seenUserNames = this.seenUserNames.union(userNames);
         if (newUserNames.size > 0) {
             let users = await twitchUsers(Array.from(newUserNames));
-            for (let user of users.data) {
-                this.registerIcon(user.login, user.profile_image_url);
-            }
+            this.addUsers(users.data);
+        }
+    }
+
+    addUsers(users: TwitchUser[]) {
+        for (let user of users) {
+            this.seenUserNames.add(user.login);
+            this.registerIcon(user.login, user.profile_image_url);
         }
     }
 
@@ -789,24 +774,31 @@ async function initial() {
         makeChannelVODTask(id, priority)
     ));
 
-    statusSpan.textContent = "Getting user id...";
-    let localUserId = await getLocalUserId();
-
-    // Don't need to await this right away
-    streamsPromise = (async function(): Promise<Map<string, TwitchStream>> {
-        let streams = interestedChannels === "follows"
-            ? await twitchGetFollowedStreams(localUserId)
-            : await twitchGetStreams(interestedChannels);
-        return new Map(streams.data.map(stream => [stream.user_id, stream]));
+    let {streamsQuery, users} = await (async () => {
+        if (interestedChannels === "follows") {
+            statusSpan.textContent = "Getting user id...";
+            let localUserId = await getLocalUserId();
+            let streamsQuery = twitchGetFollowedStreams(localUserId); // Not awaited
+            statusSpan.textContent = "Getting follows...";
+            let follows = await twitchGetFollows(localUserId);
+            channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.broadcaster_login))); // Not awaited
+            return {
+                streamsQuery,
+                users: follows.data.map(follow => ({id: follow.broadcaster_id, login: follow.broadcaster_login}))
+            };
+        } else {
+            let streamsQuery = twitchGetStreams(interestedChannels); // Not awaited
+            statusSpan.textContent = "Getting users...";
+            let users = await twitchUsers(interestedChannels);
+            channelIcons.addUsers(users.data);
+            return {
+                streamsQuery,
+                users: users.data
+            }
+        }
     })();
 
-    statusSpan.textContent = "Getting follows...";
-    let users = interestedChannels === "follows"
-        ? (await twitchGetFollows(localUserId)).data.map(follow => ({id: follow.broadcaster_id, login: follow.broadcaster_login}))
-        : (await twitchUsers(interestedChannels)).data;
-
-    // Don't need to wait for this operation
-    channelIcons.requestUserIcons(new Set(users.map(user => user.login)));
+    streamsPromise = streamsQuery.then(streams => new Map(streams.data.map(stream => [stream.user_id, stream])));
 
     // Flag channels that were cached but now aren't requested
     let actuallyInterestedIn = new Set(users.map(user => user.id));
