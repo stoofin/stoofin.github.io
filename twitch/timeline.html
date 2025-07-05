@@ -129,6 +129,10 @@
         float: left;
         font-size: 12px;
     }
+    #ratelimitWarning {
+        color: red;
+        display: none;
+    }
 </style>
 <link id="darkmodecss" disabled rel="stylesheet" href="darkmode.css"/>
 <div id="header-bar">
@@ -147,6 +151,7 @@
         </script>
     </div>
     <span id="statusSpan">Waiting for JavaScript</span>
+    <span id="ratelimitWarning">Ratelimit exceeded, waiting...</span>
     <a id="srclink" href="https://github.com/stoofin/stoofin.github.io/tree/master/twitch">Source</a>
     <div style="clear: both"></div>
 </div>

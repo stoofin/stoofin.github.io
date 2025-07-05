@@ -335,6 +335,11 @@ function requireReauthorization() {
     authlink.textContent = "Reauthorize";
     authlink.style.display = "";
 }
+let ratelimitShowCounter = 0;
+function setRatelimitWarningVisible(b) {
+    ratelimitShowCounter += b ? 1 : -1;
+    ratelimitWarning.style.display = ratelimitShowCounter > 0 ? 'inline-block' : 'none';
+}
 async function fetchTwitch(url) {
     // Because of the custom header this request will be preflighted
     // https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#Simple_requests
@@ -347,6 +352,19 @@ async function fetchTwitch(url) {
     });
     if (response.status === 401) {
         requireReauthorization();
+    }
+    if (response.status === 429) {
+        // Rate limit reached, wait and try again
+        setRatelimitWarningVisible(true);
+        let waitForMillis = 60_000; // Default to one minute
+        let resetTimeUnix = response.headers.get("ratelimit-reset");
+        if (resetTimeUnix != null) {
+            // Wait until 1 second after the reset time
+            waitForMillis = 1_000 + parseInt(resetTimeUnix) * 1_000 - (new Date()).valueOf();
+        }
+        await new Promise(resolve => setTimeout(resolve, waitForMillis));
+        setRatelimitWarningVisible(false);
+        return await fetchTwitch(url);
     }
     return await response.json();
 }
