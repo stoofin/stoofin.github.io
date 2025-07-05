@@ -375,6 +375,9 @@ function twitchUsers(userNames) {
 function twitchGetFollowedStreams(userId) {
     return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
 }
+function twitchGetStreams(userLogins) {
+    return fetchTwitch(`https://api.twitch.tv/helix/streams?user_login=${userLogins.join("&user_login=")}`);
+}
 function twitchGetFollows(fromId) {
     return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100`);
 }
@@ -408,7 +411,7 @@ function twitchBroadcastToVideo(broadcast) {
         id: broadcast.id,
         channel: broadcast.user_login,
         user_id: broadcast.user_id,
-        game: broadcast.description,
+        game: broadcast.description, // New api doesn't have a game field for videos, only streams have that now
         stream_id: broadcast.stream_id,
     };
 }
@@ -599,12 +602,21 @@ async function getLocalUserId() {
     }
     return localUserId;
 }
+function getInterestedChannels() {
+    let m = location.search.match(/\?channels=(\S+)$/);
+    if (m != null) {
+        return m[1].split(",");
+    }
+    return "follows";
+}
 async function initial() {
     getAuthorization();
     if (userAccessToken == null)
         return;
+    let interestedChannels = getInterestedChannels();
     let channels = new DefaultMap(id => new Channel(id));
-    let followedStreamsPromise = Promise.resolve(new Map());
+    // This needs to be defined early for the initial cached render
+    let streamsPromise = Promise.resolve(new Map());
     let cachedVideos = cachedVideosToVideos(JSON.parse(localStorage.getItem("cachedVideos") ?? "{}"));
     for (let video of cachedVideos) {
         channels.get(video.user_id).addCachedVideo(video);
@@ -628,32 +640,36 @@ async function initial() {
     statusSpan.textContent = "Getting user id...";
     let localUserId = await getLocalUserId();
     // Don't need to await this right away
-    followedStreamsPromise = (async function () {
-        let streams = await twitchGetFollowedStreams(localUserId);
+    streamsPromise = (async function () {
+        let streams = interestedChannels === "follows"
+            ? await twitchGetFollowedStreams(localUserId)
+            : await twitchGetStreams(interestedChannels);
         return new Map(streams.data.map(stream => [stream.user_id, stream]));
     })();
     statusSpan.textContent = "Getting follows...";
-    let follows = await twitchGetFollows(localUserId);
+    let users = interestedChannels === "follows"
+        ? (await twitchGetFollows(localUserId)).data.map(follow => ({ id: follow.broadcaster_id, login: follow.broadcaster_login }))
+        : (await twitchUsers(interestedChannels)).data;
     // Don't need to wait for this operation
-    channelIcons.requestUserIcons(new Set(follows.data.map(follow => follow.broadcaster_login)));
-    // Flag channels that are no longer followed
-    let actuallyInterestedIn = new Set(follows.data.map(follow => follow.broadcaster_id));
+    channelIcons.requestUserIcons(new Set(users.map(user => user.login)));
+    // Flag channels that were cached but now aren't requested
+    let actuallyInterestedIn = new Set(users.map(user => user.id));
     for (let id of channels.keys()) {
         if (!actuallyInterestedIn.has(id)) {
             channels.get(id).setUnwanted();
         }
     }
-    vodRequestQueue.addTasks(follows.data.filter(follow => !channelVODTasks.has(follow.broadcaster_id)).map(follow => makeChannelVODTask(follow.broadcaster_id, 0)));
-    followedStreamsPromise.then(followedStreams => {
+    vodRequestQueue.addTasks(users.filter(user => !channelVODTasks.has(user.id)).map(user => makeChannelVODTask(user.id, 0)));
+    streamsPromise.then(streams => {
         // Bump up priority of live streams
-        for (let fs of followedStreams.values()) {
+        for (let fs of streams.values()) {
             let task = channelVODTasks.get(fs.user_id);
             if (task != null) {
                 task.priority = new Date().valueOf();
             }
         }
         // Insert placeholder entries for live streams (will be hidden if it overlaps with a VOD)
-        for (let s of followedStreams.values()) {
+        for (let s of streams.values()) {
             channels.get(s.user_id).addPlaceholder({
                 channel: s.user_login,
                 start: new Date(s.started_at),
@@ -671,7 +687,7 @@ async function initial() {
     }
     function renderTimelines() {
         let allSegments = getSegments(getAllVideos());
-        layoutToHTML(layoutSegments(allSegments), followedStreamsPromise);
+        layoutToHTML(layoutSegments(allSegments), streamsPromise);
     }
     async function processRequestQueue(numChannels, queue) {
         let numChannelLoaded = 0;
@@ -689,8 +705,8 @@ async function initial() {
         }
         statusSpan.textContent = "Rendering...";
     }
-    await processRequestQueue(follows.data.length, vodRequestQueue);
-    await followedStreamsPromise;
+    await processRequestQueue(users.length, vodRequestQueue);
+    await streamsPromise;
     let cachedStr = JSON.stringify(videosToCachedVideos(getAllVideos()));
     if (cachedStr.length > 2e6) {
         cachedStr = '{}';
