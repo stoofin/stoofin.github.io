@@ -43,7 +43,7 @@ class ChannelIcons {
         let newUserNames = userNames.difference(this.seenUserNames);
         this.seenUserNames = this.seenUserNames.union(userNames);
         if (newUserNames.size > 0) {
-            let users = await twitchUsers(Array.from(newUserNames));
+            let users = await twitchGetUsers(Array.from(newUserNames));
             this.addUsers(users.data);
         }
     }
@@ -350,21 +350,56 @@ async function fetchTwitch(url) {
     }
     return await response.json();
 }
-function twitchUser() {
+function* chunks(ts, chunkSize) {
+    for (let i = 0; i < ts.length; i += chunkSize) {
+        yield ts.slice(i, i + chunkSize);
+    }
+}
+async function twitchGetAllByLogin(api, allUserNames) {
+    let requests = Array
+        .from(chunks(allUserNames, 10))
+        .map(userNames => api(userNames));
+    let results = await Promise.all(requests);
+    return { data: results.flatMap(r => r.data) };
+}
+// TS doesn't enforce the existence of the cursor parameter well
+async function twitchGetAllPaginated(api) {
+    let results = [];
+    let cursor = undefined;
+    do {
+        let result = await api(cursor);
+        results.push(result);
+        cursor = result.pagination.cursor;
+    } while (cursor != null);
+    return { data: results.flatMap(r => r.data) };
+}
+function twitchGetUser() {
     // Gets user by bearer token. Used to get the user's id for other queries.
     return fetchTwitch(`https://api.twitch.tv/helix/users`);
 }
-function twitchUsers(userNames) {
+function twitchGetUsersLimit100(userNames) {
     return fetchTwitch(`https://api.twitch.tv/helix/users?login=${userNames.join('&login=')}`);
 }
-function twitchGetFollowedStreams(userId) {
-    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
+function twitchGetUsers(userNames) {
+    return twitchGetAllByLogin(twitchGetUsersLimit100, userNames);
 }
-function twitchGetStreams(userLogins) {
+function twitchGet100FollowedStreams(userId, cursor) {
+    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}&first=100${cursor != null ? "&after=" + cursor : ''}`);
+}
+function twitchGetFollowedStreams(userId) {
+    return twitchGetAllPaginated(cursor => twitchGet100FollowedStreams(userId, cursor));
+}
+function twitchGetStreamsLimit100(userLogins) {
     return fetchTwitch(`https://api.twitch.tv/helix/streams?user_login=${userLogins.join("&user_login=")}`);
 }
-function twitchGetFollows(fromId) {
-    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100`);
+function twitchGetStreams(userNames) {
+    return twitchGetAllByLogin(twitchGetStreamsLimit100, userNames);
+}
+function twitchGet100Follows(fromId, cursor) {
+    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100${cursor != null ? "&after=" + cursor : ''}`);
+}
+async function twitchGetFollows(fromId) {
+    return twitchGetAllPaginated(cursor => twitchGet100Follows(fromId, cursor));
 }
 function twitchGetUserArchiveVideos(userId, count = 10, after_cursor) {
     let pagination = after_cursor != null ? `&after=${after_cursor}` : '';
@@ -579,7 +614,7 @@ async function getLocalUserId() {
     let localUserId;
     let storedUserId = localStorage.getItem('UserId');
     if (storedUserId == null) {
-        localUserId = (await twitchUser()).data[0].id;
+        localUserId = (await twitchGetUser()).data[0].id;
         localStorage.setItem('UserId', localUserId);
     }
     else {
@@ -638,7 +673,7 @@ async function initial() {
         else {
             let streamsQuery = twitchGetStreams(interestedChannels); // Not awaited
             statusSpan.textContent = "Getting users...";
-            let users = await twitchUsers(interestedChannels);
+            let users = await twitchGetUsers(interestedChannels);
             channelIcons.addUsers(users.data);
             return {
                 streamsQuery,

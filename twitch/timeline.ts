@@ -53,7 +53,7 @@ class ChannelIcons {
         let newUserNames = userNames.difference(this.seenUserNames);
         this.seenUserNames = this.seenUserNames.union(userNames);
         if (newUserNames.size > 0) {
-            let users = await twitchUsers(Array.from(newUserNames));
+            let users = await twitchGetUsers(Array.from(newUserNames));
             this.addUsers(users.data);
         }
     }
@@ -384,6 +384,32 @@ async function fetchTwitch(url: string) {
     return await response.json();
 }
 
+function* chunks<T>(ts: T[], chunkSize: number): IterableIterator<T[]> {
+    for (let i = 0; i < ts.length; i += chunkSize) {
+        yield ts.slice(i, i + chunkSize);
+    }
+}
+
+async function twitchGetAllByLogin<T>(api: (userNames: string[]) => Promise<{ data: T[] }>, allUserNames: string[]): Promise<{ data: T[] }> {
+    let requests = Array
+        .from(chunks(allUserNames, 10))
+        .map(userNames => api(userNames));
+    let results = await Promise.all(requests);
+    return { data: results.flatMap(r => r.data) };
+}
+
+ // TS doesn't enforce the existence of the cursor parameter well
+async function twitchGetAllPaginated<T>(api: (cursor?: string) => Promise<TwitchPaginatedResult<T>>): Promise<{ data: T[] }> {
+    let results = [];
+    let cursor = undefined;
+    do {
+        let result = await api(cursor);
+        results.push(result);
+        cursor = result.pagination.cursor;
+    } while (cursor != null);
+    return { data: results.flatMap(r => r.data) };
+}
+
 interface TwitchUser {
     "id": string, // "141981764",
     "login": string, // "twitchdev",
@@ -398,13 +424,16 @@ interface TwitchUser {
     "created_at": string, // "2016-12-14T20:32:28Z"
 }
 
-function twitchUser(): Promise<{ data: TwitchUser[] }> {
+function twitchGetUser(): Promise<{ data: TwitchUser[] }> {
     // Gets user by bearer token. Used to get the user's id for other queries.
     return fetchTwitch(`https://api.twitch.tv/helix/users`);
 }
 
-function twitchUsers(userNames: string[]): Promise<{ data: TwitchUser[] }> {
+function twitchGetUsersLimit100(userNames: string[]): Promise<{ data: TwitchUser[] }> {
     return fetchTwitch(`https://api.twitch.tv/helix/users?login=${userNames.join('&login=')}`);
+}
+function twitchGetUsers(userNames: string[]): Promise<{ data: TwitchUser[] }> {
+    return twitchGetAllByLogin(twitchGetUsersLimit100, userNames);
 }
 
 interface TwitchStream {
@@ -423,11 +452,17 @@ interface TwitchStream {
     "tag_ids": string[] // [ "6ea6bca4-4712-4ab9-a906-e3336a9d8039" ]
 }
 
-function twitchGetFollowedStreams(userId: string): Promise<{ data: TwitchStream[] }> {
-    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}`);
+function twitchGet100FollowedStreams(userId: string, cursor?: string): Promise<TwitchPaginatedResult<TwitchStream>> {
+    return fetchTwitch(`https://api.twitch.tv/helix/streams/followed?user_id=${userId}&first=100${cursor != null ? "&after="+cursor : ''}`);
 }
-function twitchGetStreams(userLogins: string[]): Promise<{ data: TwitchStream[] }> {
+function twitchGetFollowedStreams(userId: string): Promise<{ data: TwitchStream[] }> {
+    return twitchGetAllPaginated(cursor => twitchGet100FollowedStreams(userId, cursor));
+}
+function twitchGetStreamsLimit100(userLogins: string[]): Promise<{ data: TwitchStream[] }> {
     return fetchTwitch(`https://api.twitch.tv/helix/streams?user_login=${userLogins.join("&user_login=")}`);
+}
+function twitchGetStreams(userNames: string[]): Promise<{ data: TwitchStream[] }> {
+    return twitchGetAllByLogin(twitchGetStreamsLimit100, userNames);
 }
 
 interface TwitchFollow {
@@ -437,8 +472,11 @@ interface TwitchFollow {
     "followed_at": string, // "2022-05-24T22:22:08Z",
 }
 
-function twitchGetFollows(fromId: string): Promise<TwitchPaginatedResult<TwitchFollow>> {
-    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100`);
+function twitchGet100Follows(fromId: string, cursor?: string): Promise<TwitchPaginatedResult<TwitchFollow>> {
+    return fetchTwitch(`https://api.twitch.tv/helix/channels/followed?user_id=${fromId}&first=100${cursor != null ? "&after="+cursor : ''}`);
+}
+async function twitchGetFollows(fromId: string): Promise<{ data: TwitchFollow[] }> {
+    return twitchGetAllPaginated(cursor => twitchGet100Follows(fromId, cursor));
 }
 
 interface TwitchVideo {
@@ -721,7 +759,7 @@ async function getLocalUserId(): Promise<string> {
     let localUserId: string;
     let storedUserId = localStorage.getItem('UserId');
     if (storedUserId == null) {
-        localUserId = (await twitchUser()).data[0].id;
+        localUserId = (await twitchGetUser()).data[0].id;
         localStorage.setItem('UserId', localUserId);
     } else {
         localUserId = storedUserId;
@@ -789,7 +827,7 @@ async function initial() {
         } else {
             let streamsQuery = twitchGetStreams(interestedChannels); // Not awaited
             statusSpan.textContent = "Getting users...";
-            let users = await twitchUsers(interestedChannels);
+            let users = await twitchGetUsers(interestedChannels);
             channelIcons.addUsers(users.data);
             return {
                 streamsQuery,
