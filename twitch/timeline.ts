@@ -328,7 +328,6 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
         return mk('div', {class: "channel-timeline"}, [
             mk('div', {class: "channel-name"}, [text(channelName)]),
             mk('div', {class: "timeline"}, flatten([
-                makeGridLines(hoursInDay(channel[0].span.start)),
                 eqDay(channel[0].span.start, new Date()) ? [makeNowDiv(channelName, channelId)] : [],
                 channel.map(segment => makeSegmentDiv(segment))
             ]))
@@ -337,6 +336,7 @@ function layoutToHTML(segmentsLayout: Segment[][][], liveStreams: Promise<Map<st
     function makeDayDiv(channels: Segment[][]) {
         let day = channels[0][0].span.start;
         return mk('div', {class: "timeline-container"}, flatten([
+            [mk('div', {class: "timeline-grid-container"}, makeGridLines(hoursInDay(channels[0][0].span.start)))],
             [mk('div', {class: "timeline-date-title"}, [text(dateToString(day))])],
             channels.map(channel => makeTimelineDiv(channel))
         ]));
