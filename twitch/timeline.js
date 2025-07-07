@@ -253,21 +253,47 @@ function layoutToHTML(segmentsLayout, liveStreams) {
         var dayLength = subDate(lastSecond, firstSecond);
         var left = (subDate(span.start, firstSecond) / dayLength * 100).toFixed(2) + "%";
         var right = (subDate(lastSecond, span.end) / dayLength * 100).toFixed(2) + "%";
+        const is_placeholder = video.id === STREAM_PLACEHOLDER_ID;
         let url;
-        if (video.id === STREAM_PLACEHOLDER_ID) {
+        if (is_placeholder) {
             url = "https://twitch.tv/" + video.channel;
         }
         else {
             url = "https://twitch.tv/videos/" + video.id + makeTimeArgument(subDate(span.start, video.start));
         }
         var spanDiv = mk("a", {
-            class: "timeline-span" + (video.id === STREAM_PLACEHOLDER_ID ? " placeholder" : ""),
+            class: "timeline-span" + (is_placeholder ? " placeholder" : ""),
             title: video.title + "\n" + video.game,
             href: url,
             style: `left: ${left}; right: ${right}`,
         }, [
             mk('span', { class: "timeline-span-text" }, [text(video.title)])
         ]);
+        listen(spanDiv, {
+            mousemove(evt) {
+                if (jumpToTimeCheckbox.checked) {
+                    specificTimeTooltip.classList.add("showTooltip");
+                    let boundingRect = spanDiv.getBoundingClientRect();
+                    let percentageIntoSpan = (evt.clientX - boundingRect.left) / boundingRect.width;
+                    let hoverDate = new Date(span.start.valueOf() + percentageIntoSpan * subDate(span.end, span.start));
+                    specificTimeTooltip.textContent = is_placeholder ? "No VOD available" : hoverDate.toLocaleTimeString();
+                    let tooltipWidth = specificTimeTooltip.clientWidth;
+                    let tooltipCenterX = boundingRect.left + percentageIntoSpan * boundingRect.width;
+                    let maxX = window.innerWidth - tooltipWidth - 1;
+                    specificTimeTooltip.style.top = (boundingRect.top - 20) + "px";
+                    specificTimeTooltip.style.left = Math.min(maxX, tooltipCenterX - tooltipWidth / 2) + "px";
+                    if (!is_placeholder) {
+                        spanDiv.href = "https://twitch.tv/videos/" + video.id + makeTimeArgument(subDate(hoverDate, video.start));
+                    }
+                }
+                else {
+                    spanDiv.href = url;
+                }
+            },
+            mouseleave() {
+                specificTimeTooltip.classList.remove("showTooltip");
+            }
+        });
         channelIcons.getIcon(video.channel).then(imgSrc => {
             if (imgSrc != null) {
                 prependChild(spanDiv, mk("img", { src: imgSrc }));

@@ -125,13 +125,33 @@
         float: right;
         font-size: 12px;
     }
-    #dark-mode-toggle {
+    #dark-mode-toggle, #specific-time-toggle {
         float: left;
         font-size: 12px;
     }
     #ratelimitWarning {
         color: red;
         display: none;
+    }
+    #specificTimeTooltip {
+        display: inline-block;
+        position: fixed;
+        background: rgba(50, 50, 50, 1.0);
+        color: white;
+        border: 1px solid #CCC;
+        border-radius: 3px;
+        font-size: 12px;
+        z-index: 3;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+        padding: 0 2px;
+        white-space: pre;
+        box-sizing: border-box;
+    }
+    #specificTimeTooltip.showTooltip {
+        opacity: 1;
+        transition: opacity 0.1s;
     }
 </style>
 <link id="darkmodecss" disabled rel="stylesheet" href="darkmode.css"/>
@@ -150,6 +170,9 @@
             enableDarkMode(dark_mode_checkbox.checked);
         </script>
     </div>
+    <div id="specific-time-toggle">
+        <input id="jumpToTimeCheckbox" type="checkbox"/><label for="jumpToTimeCheckbox">Jump to Specific Time</label>
+    </div>
     <span id="statusSpan">Waiting for JavaScript</span>
     <span id="ratelimitWarning">Ratelimit exceeded, waiting...</span>
     <a id="srclink" href="https://github.com/stoofin/stoofin.github.io/tree/master/twitch">Source</a>
@@ -157,6 +180,7 @@
 </div>
 <center><a id="authlink">Authorize</a></center>
 <div id="timelines"></div>
+<div id="specificTimeTooltip"></div>
 <center><input id="loadMoreButton" value="Load More" type="button" style="display: none;" onclick="LoadMore()"/></center>
 <script src="timeline.js"></script>
 </body>
