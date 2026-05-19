@@ -13,7 +13,7 @@ TODO:
 */
 
 const STREAM_PLACEHOLDER_ID = "stream_placeholder";
-const CONCURRENT_ARCHIVE_REQUESTS = 20;
+const CONCURRENT_ARCHIVE_REQUESTS = 100;
 
 let here = window.location.href.startsWith("http://localhost") ? "http://localhost:1666/timeline.html" : "https://stoofin.github.io/twitch/timeline.html";
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";

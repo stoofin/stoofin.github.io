@@ -4,7 +4,7 @@ TODO:
         To make it clear that just because one might exist earlier on another channel doesn't mean there can't be a vod there on the first.
 */
 const STREAM_PLACEHOLDER_ID = "stream_placeholder";
-const CONCURRENT_ARCHIVE_REQUESTS = 20;
+const CONCURRENT_ARCHIVE_REQUESTS = 100;
 let here = window.location.href.startsWith("http://localhost") ? "http://localhost:1666/timeline.html" : "https://stoofin.github.io/twitch/timeline.html";
 var clientId = "wvea6zmii7cgnnjo10chrqocxd4fln";
 authlink.href = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${here}&response_type=token&scope=user:read:follows`;
